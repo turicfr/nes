@@ -311,7 +311,7 @@ impl CPU {
 
     pub fn run_tests(&mut self, program: Vec<u8>) {
         self.load(program);
-        self.program_counter = self.read_u16(0xFFFC);
+        self.program_counter = self.peek_u16(0xFFFC);
         self.run();
     }
 
@@ -320,20 +320,29 @@ impl CPU {
         self.register_x = 0;
         self.register_y = 0;
         self.status = StatusFlags::empty();
-        self.program_counter = self.read_u16(0xFFFC);
+        self.program_counter = self.peek_u16(0xFFFC);
     }
 
-    fn read_u8(&mut self, addr: u16) -> u8 {
-        self.program_counter += 1;
+    fn read_u8(&mut self) -> u8 {
+        let value = self.memory[self.program_counter as usize];
+        self.program_counter = self.program_counter.wrapping_add(1);
+        value
+    }
+
+    fn peek_u8(&mut self, addr: u16) -> u8 {
         self.memory[addr as usize]
     }
 
-    fn read_i8(&mut self, addr: u16) -> i8 {
-        self.read_u8(addr) as i8
+    fn read_i8(&mut self) -> i8 {
+        self.read_u8() as i8
     }
 
-    fn read_u16(&mut self, addr: u16) -> u16 {
-        u16::from_le_bytes([self.read_u8(addr), self.read_u8(addr + 1)])
+    fn read_u16(&mut self) -> u16 {
+        u16::from_le_bytes([self.read_u8(), self.read_u8()])
+    }
+
+    fn peek_u16(&mut self, addr: u16) -> u16 {
+        u16::from_le_bytes([self.peek_u8(addr), self.peek_u8(addr.wrapping_add(1))])
     }
 
     fn mem_write(&mut self, addr: u16, data: u8) {
@@ -401,7 +410,7 @@ impl CPU {
     }
 
     fn branch(&mut self, condition: bool) {
-        let value = self.read_i8(self.program_counter);
+        let value = self.read_i8();
         if condition {
             self.program_counter = self.program_counter.wrapping_add_signed(value.into());
         }
@@ -423,42 +432,26 @@ impl CPU {
                 self.program_counter += 1;
                 addr
             }
-            AddressingMode::ZeroPage => self.read_u8(self.program_counter).into(),
-            AddressingMode::ZeroPageX => {
-                let pos = self.read_u8(self.program_counter);
-                pos.wrapping_add(self.register_x).into()
-            }
-            AddressingMode::ZeroPageY => {
-                let pos = self.read_u8(self.program_counter);
-                pos.wrapping_add(self.register_y).into()
-            }
-            AddressingMode::Absolute => self.read_u16(self.program_counter),
-            AddressingMode::AbsoluteX => {
-                let base = self.read_u16(self.program_counter);
-                base.wrapping_add(self.register_x.into())
-            }
-            AddressingMode::AbsoluteY => {
-                let base = self.read_u16(self.program_counter);
-                base.wrapping_add(self.register_y.into())
-            }
+            AddressingMode::ZeroPage => self.read_u8().into(),
+            AddressingMode::ZeroPageX => self.read_u8().wrapping_add(self.register_x).into(),
+            AddressingMode::ZeroPageY => self.read_u8().wrapping_add(self.register_y).into(),
+            AddressingMode::Absolute => self.read_u16(),
+            AddressingMode::AbsoluteX => self.read_u16().wrapping_add(self.register_x.into()),
+            AddressingMode::AbsoluteY => self.read_u16().wrapping_add(self.register_y.into()),
             AddressingMode::Indirect => {
                 todo!()
             }
             AddressingMode::IndirectX => {
-                let base = self.read_u8(self.program_counter);
-
-                let ptr = base.wrapping_add(self.register_x);
-                let lo: u16 = self.memory[ptr as usize].into();
-                let hi: u16 = self.memory[ptr.wrapping_add(1) as usize].into();
-                hi << 8 | lo
+                let ptr = self.read_u8().wrapping_add(self.register_x) as usize;
+                u16::from_le_bytes([self.memory[ptr], self.memory[ptr.wrapping_add(1)]])
             }
             AddressingMode::IndirectY => {
-                let base = self.read_u8(self.program_counter);
-
-                let lo: u16 = self.memory[base as usize].into();
-                let hi: u16 = self.memory[base.wrapping_add(1) as usize].into();
-                let deref_base = hi << 8 | lo;
-                deref_base.wrapping_add(self.register_y.into())
+                let base = self.read_u8();
+                u16::from_le_bytes([
+                    self.memory[base as usize],
+                    self.memory[base.wrapping_add(1) as usize],
+                ])
+                .wrapping_add(self.register_y.into())
             }
             AddressingMode::NoneAddressing => panic!("mode {:?} is not supported", mode),
         }
@@ -469,13 +462,13 @@ impl CPU {
     }
 
     pub fn run_with_callback<F>(&mut self, mut callback: F)
-        where
-            F: FnMut(&mut CPU),
+    where
+        F: FnMut(&mut CPU),
     {
         loop {
             callback(self);
 
-            let opcode = self.read_u8(self.program_counter);
+            let opcode = self.read_u8();
             let opcode = match OP_CODES_MAP.get(&opcode) {
                 Some(opcode) => opcode,
                 None => todo!("{}", format!("opcode: {:#02x?}", opcode)),
@@ -663,7 +656,7 @@ impl CPU {
                 OpCode::NOP => {}
                 OpCode::BRK => {
                     self.status.insert(StatusFlags::BREAK_COMMAND);
-                    return
+                    return;
                 }
             }
         }
