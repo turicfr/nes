@@ -1,12 +1,15 @@
 use bitflags::bitflags;
 use lazy_static::lazy_static;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::EventPump;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
+use bus::Bus;
+
+mod bus;
 
 const STACK_BASE: u16 = 0x100;
 
@@ -293,7 +296,7 @@ pub struct CPU {
     status: StatusFlags,
     stack_pointer: u8,
     program_counter: u16,
-    memory: [u8; u16::MAX as usize],
+    bus: Bus,
 }
 
 impl CPU {
@@ -305,7 +308,7 @@ impl CPU {
             status: StatusFlags::from_bits_truncate(0b0010_0000),
             stack_pointer: 0xff,
             program_counter: 0,
-            memory: [0; 0xFFFF],
+            bus: Bus::new(),
         }
     }
 
@@ -323,14 +326,14 @@ impl CPU {
         self.program_counter = self.peek_u16(0xFFFC);
     }
 
-    fn read_u8(&mut self) -> u8 {
-        let value = self.memory[self.program_counter as usize];
-        self.program_counter = self.program_counter.wrapping_add(1);
-        value
+    fn peek_u8(&mut self, addr: u16) -> u8 {
+        self.bus.mem_read(addr)
     }
 
-    fn peek_u8(&mut self, addr: u16) -> u8 {
-        self.memory[addr as usize]
+    fn read_u8(&mut self) -> u8 {
+        let value = self.peek_u8(self.program_counter);
+        self.program_counter = self.program_counter.wrapping_add(1);
+        value
     }
 
     fn read_i8(&mut self) -> i8 {
@@ -346,7 +349,7 @@ impl CPU {
     }
 
     fn mem_write(&mut self, addr: u16, data: u8) {
-        self.memory[addr as usize] = data;
+        self.bus.mem_write(addr, data);
     }
 
     fn mem_write_u16(&mut self, addr: u16, data: u16) {
@@ -356,13 +359,14 @@ impl CPU {
     }
 
     fn stack_push_u8(&mut self, data: u8) {
-        self.memory[self.stack_pointer as usize + STACK_BASE as usize] = data;
+        self.bus
+            .mem_write(self.stack_pointer as u16 + STACK_BASE, data);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
     fn stack_pop_u8(&mut self) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
-        self.memory[self.stack_pointer as usize + STACK_BASE as usize]
+        self.bus.mem_read(self.stack_pointer as u16 + STACK_BASE)
     }
 
     fn stack_push_u16(&mut self, data: u16) {
@@ -383,7 +387,9 @@ impl CPU {
 
     pub fn load(&mut self, program: Vec<u8>) {
         let start_addr = 0x0600 /*0x8000*/;
-        self.memory[start_addr..start_addr + program.len()].copy_from_slice(&program);
+        for i in 0..program.len() as u16 {
+            self.mem_write(start_addr + i, program[i as usize]);
+        }
         self.mem_write_u16(0xFFFC, start_addr as u16);
     }
 
@@ -397,7 +403,7 @@ impl CPU {
             }
             _ => {
                 let addr = self.operand_address(mode);
-                let value = self.memory[addr as usize];
+                let value = self.bus.mem_read(addr);
                 self.status
                     .set(StatusFlags::CARRY, value & 0b0000_0001 == 1);
                 let result = value.wrapping_shr(1);
@@ -442,14 +448,17 @@ impl CPU {
                 todo!()
             }
             AddressingMode::IndirectX => {
-                let ptr = self.read_u8().wrapping_add(self.register_x) as usize;
-                u16::from_le_bytes([self.memory[ptr], self.memory[ptr.wrapping_add(1)]])
+                let ptr = self.read_u8().wrapping_add(self.register_x);
+                u16::from_le_bytes([
+                    self.bus.mem_read(ptr.into()),
+                    self.bus.mem_read(ptr.wrapping_add(1).into()),
+                ])
             }
             AddressingMode::IndirectY => {
                 let base = self.read_u8();
                 u16::from_le_bytes([
-                    self.memory[base as usize],
-                    self.memory[base.wrapping_add(1) as usize],
+                    self.bus.mem_read(base.into()),
+                    self.bus.mem_read(base.wrapping_add(1).into()),
                 ])
                 .wrapping_add(self.register_y.into())
             }
@@ -482,24 +491,23 @@ impl CPU {
                     self.stack_pointer = self.stack_pointer.wrapping_sub(1);
                 }
                 OpCode::PLA => {
-                    self.register_a =
-                        self.memory[self.stack_pointer as usize + STACK_BASE as usize];
+                    self.register_a = self.peek_u8(self.stack_pointer as u16 + STACK_BASE);
                     self.stack_pointer = self.stack_pointer.wrapping_add(1);
                     self.update_zero_and_negative_flags(self.register_a);
                 }
                 OpCode::LDA => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    self.register_a = self.memory[addr as usize];
+                    self.register_a = self.peek_u8(addr);
                     self.update_zero_and_negative_flags(self.register_a);
                 }
                 OpCode::LDX => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    self.register_x = self.memory[addr as usize];
+                    self.register_x = self.peek_u8(addr);
                     self.update_zero_and_negative_flags(self.register_x);
                 }
                 OpCode::LDY => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    self.register_y = self.memory[addr as usize];
+                    self.register_y = self.peek_u8(addr);
                     self.update_zero_and_negative_flags(self.register_y);
                 }
                 OpCode::STA => {
@@ -516,25 +524,24 @@ impl CPU {
 
                 OpCode::AND => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    self.register_a = self.register_a & self.memory[addr as usize];
+                    self.register_a = self.register_a & self.peek_u8(addr);
                     self.update_zero_and_negative_flags(self.register_a);
                 }
                 OpCode::ORA => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    self.register_a = self.register_a | self.memory[addr as usize];
+                    self.register_a = self.register_a | self.peek_u8(addr);
                     self.update_zero_and_negative_flags(self.register_a);
                 }
                 OpCode::EOR => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    self.register_a = self.register_a ^ self.memory[addr as usize];
+                    self.register_a = self.register_a ^ self.peek_u8(addr);
                     self.update_zero_and_negative_flags(self.register_a);
                 }
 
                 // TODO: cleanup & handle overflow bit
                 OpCode::ADC => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    let (value, overflow1) =
-                        self.register_a.overflowing_add(self.memory[addr as usize]);
+                    let (value, overflow1) = self.register_a.overflowing_add(self.peek_u8(addr));
                     let (result, overflow2) =
                         value.overflowing_add(self.status.contains(StatusFlags::CARRY) as u8);
                     self.register_a = result;
@@ -543,8 +550,7 @@ impl CPU {
                 }
                 OpCode::SBC => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    let (value, overflow1) =
-                        self.register_a.overflowing_sub(self.memory[addr as usize]);
+                    let (value, overflow1) = self.register_a.overflowing_sub(self.peek_u8(addr));
                     let (result, overflow2) =
                         value.overflowing_sub(!self.status.contains(StatusFlags::CARRY) as u8);
                     if overflow1 || overflow2 {
@@ -556,7 +562,7 @@ impl CPU {
 
                 OpCode::CMP => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    let value = self.memory[addr as usize];
+                    let value = self.peek_u8(addr);
                     let result = self.register_a.wrapping_sub(value);
                     if self.register_a >= value {
                         self.status.insert(StatusFlags::CARRY);
@@ -566,7 +572,7 @@ impl CPU {
                 }
                 OpCode::CPX => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    let value = self.memory[addr as usize];
+                    let value = self.peek_u8(addr);
                     let result = self.register_x.wrapping_sub(value);
                     if self.register_x >= value {
                         self.status.insert(StatusFlags::CARRY);
@@ -576,9 +582,9 @@ impl CPU {
                 }
                 OpCode::CPY => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    let value = self.memory[addr as usize];
+                    let value = self.peek_u8(addr);
                     let result = self.register_y.wrapping_sub(value);
-                    if self.register_y >= self.memory[addr as usize] {
+                    if self.register_y >= self.peek_u8(addr) {
                         self.status.insert(StatusFlags::CARRY);
                     }
 
@@ -586,7 +592,7 @@ impl CPU {
                 }
                 OpCode::BIT => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    let value = self.memory[addr as usize];
+                    let value = self.peek_u8(addr);
                     self.status
                         .set(StatusFlags::OVERFLOW, value & 0b0100_0000 == 1);
                     self.status
@@ -608,7 +614,7 @@ impl CPU {
 
                 OpCode::DEC => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    let value = self.memory[addr as usize].wrapping_sub(1);
+                    let value = self.peek_u8(addr).wrapping_sub(1);
                     self.mem_write(addr, value);
                     self.update_zero_and_negative_flags(value);
                 }
@@ -630,7 +636,7 @@ impl CPU {
                 }
                 OpCode::INC => {
                     let addr = self.operand_address(&opcode.addressing_mode);
-                    let value = self.memory[addr as usize].wrapping_add(1);
+                    let value = self.peek_u8(addr).wrapping_add(1);
                     self.mem_write(addr, value);
                     self.update_zero_and_negative_flags(value);
                 }
@@ -825,7 +831,7 @@ fn read_screen_state(cpu: &CPU, frame: &mut [u8; 32 * 32 * 3]) -> bool {
     let mut frame_idx = 0;
     let mut update = false;
     for i in 0x0200..0x600 {
-        let (b1, b2, b3) = color(cpu.memory[i]).rgb();
+        let (b1, b2, b3) = color(cpu.bus.mem_read(i)).rgb();
         if frame[frame_idx] != b1 || frame[frame_idx + 1] != b2 || frame[frame_idx + 2] != b3 {
             frame[frame_idx] = b1;
             frame[frame_idx + 1] = b2;
