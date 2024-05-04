@@ -11,18 +11,18 @@ bitflags! {
     #[derive(Deserialize, Debug)]
     struct Flags6: u8 {
         const NAMETABLE_ARRANGEMENT = 1 << 0;
-        const PRG_RAM_BATTERY = 1 << 1;
-        const TRAINER = 1 << 2;
+        const PRG_RAM_BATTERY       = 1 << 1;
+        const TRAINER               = 1 << 2;
         const ALTERNATIVE_NAMETABLE = 1 << 3;
-        const LO_MAPPER = 0b1111_0000;
+        const LO_MAPPER             = 0b1111_0000;
     }
 
     #[derive(Deserialize, Debug)]
     struct Flags7: u8 {
-        const VS_UNISYSTEM = 1 << 0;
+        const VS_UNISYSTEM  = 1 << 0;
         const PLAYCHOICE_10 = 1 << 1;
-        const VERSION = 0b0000_1100;
-        const HI_MAPPER = 0b1111_0000;
+        const VERSION       = 0b0000_1100;
+        const HI_MAPPER     = 0b1111_0000;
     }
 }
 
