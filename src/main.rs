@@ -12,6 +12,7 @@ use std::io::Read;
 mod bus;
 mod cpu;
 mod rom;
+mod carrying;
 
 fn color(byte: u8) -> Color {
     match byte {

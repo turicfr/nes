@@ -2,6 +2,8 @@ use crate::bus::Bus;
 use bitflags::bitflags;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
+use std::fmt;
+use std::fmt::Formatter;
 
 const STACK_BASE: u16 = 0x100;
 
@@ -12,157 +14,159 @@ lazy_static! {
     // Instruction reference: https://www.nesdev.org/obelisk-6502-guide/reference.html
     pub static ref OP_CODES_MAP: HashMap<u8, Instruction> = {
         HashMap::from([
-            (0x00, Instruction::new(7, &(CPU::brk as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xea, Instruction::new(2, &(CPU::nop as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x18, Instruction::new(2, &(CPU::clc as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x38, Instruction::new(2, &(CPU::sec as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xd8, Instruction::new(2, &(CPU::cld as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xf8, Instruction::new(2, &(CPU::sed as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xb8, Instruction::new(2, &(CPU::clv as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x58, Instruction::new(2, &(CPU::cli as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x78, Instruction::new(2, &(CPU::sei as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xaa, Instruction::new(2, &(CPU::tax as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x8a, Instruction::new(2, &(CPU::txa as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x9a, Instruction::new(2, &(CPU::txs as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xba, Instruction::new(2, &(CPU::tsx as OpcodeMethod), AddressingMode::NoneAddressing)),
+            (0x00, Instruction::new(CPU::brk, "BRK", 7, AddressingMode::None)),
+            (0xea, Instruction::new(CPU::nop, "NOP", 2, AddressingMode::None)),
+            (0x18, Instruction::new(CPU::clc, "CLC", 2, AddressingMode::None)),
+            (0x38, Instruction::new(CPU::sec, "SEC", 2, AddressingMode::None)),
+            (0xd8, Instruction::new(CPU::cld, "CLD", 2, AddressingMode::None)),
+            (0xf8, Instruction::new(CPU::sed, "SED", 2, AddressingMode::None)),
+            (0xb8, Instruction::new(CPU::clv, "CLV", 2, AddressingMode::None)),
+            (0x58, Instruction::new(CPU::cli, "CLI", 2, AddressingMode::None)),
+            (0x78, Instruction::new(CPU::sei, "SEI", 2, AddressingMode::None)),
+            (0xaa, Instruction::new(CPU::tax, "TAX", 2, AddressingMode::None)),
+            (0x8a, Instruction::new(CPU::txa, "TXA", 2, AddressingMode::None)),
+            (0x9a, Instruction::new(CPU::txs, "TXS", 2, AddressingMode::None)),
+            (0xba, Instruction::new(CPU::tsx, "TSX", 2, AddressingMode::None)),
 
-            (0x20, Instruction::new(6, &(CPU::jsr as OpcodeMethod), AddressingMode::Absolute)),
-            (0xe8, Instruction::new(2, &(CPU::inx as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xc8, Instruction::new(2, &(CPU::iny as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x60, Instruction::new(6, &(CPU::rts as OpcodeMethod), AddressingMode::NoneAddressing)),
+            (0x20, Instruction::new(CPU::jsr, "JSR", 6, AddressingMode::Absolute)),
+            (0xe8, Instruction::new(CPU::inx, "INX", 2, AddressingMode::None)),
+            (0xc8, Instruction::new(CPU::iny, "INY", 2, AddressingMode::None)),
+            (0x60, Instruction::new(CPU::rts, "RTS", 6, AddressingMode::None)),
 
-            (0xe6, Instruction::new(5, &(CPU::inc as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xf6, Instruction::new(6, &(CPU::inc as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0xee, Instruction::new(6, &(CPU::inc as OpcodeMethod), AddressingMode::Absolute)),
-            (0xfe, Instruction::new(7, &(CPU::inc as OpcodeMethod), AddressingMode::AbsoluteX)),
+            (0xe6, Instruction::new(CPU::inc, "INC", 5, AddressingMode::ZeroPage)),
+            (0xf6, Instruction::new(CPU::inc, "INC", 6, AddressingMode::ZeroPageX)),
+            (0xee, Instruction::new(CPU::inc, "INC", 6, AddressingMode::Absolute)),
+            (0xfe, Instruction::new(CPU::inc, "INC", 7, AddressingMode::AbsoluteX)),
 
-            (0xa9, Instruction::new(2, &(CPU::lda as OpcodeMethod), AddressingMode::Immediate)),
-            (0xa5, Instruction::new(3, &(CPU::lda as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xb5, Instruction::new(4, &(CPU::lda as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0xad, Instruction::new(4, &(CPU::lda as OpcodeMethod), AddressingMode::Absolute)),
-            (0xbd, Instruction::new(4, &(CPU::lda as OpcodeMethod), AddressingMode::AbsoluteX)),
-            (0xb9, Instruction::new(4, &(CPU::lda as OpcodeMethod), AddressingMode::AbsoluteY)),
-            (0xa1, Instruction::new(6, &(CPU::lda as OpcodeMethod), AddressingMode::IndirectX)),
-            (0xb1, Instruction::new(5, &(CPU::lda as OpcodeMethod), AddressingMode::IndirectY)),
+            (0xa9, Instruction::new(CPU::lda, "LDA", 2, AddressingMode::Immediate)),
+            (0xa5, Instruction::new(CPU::lda, "LDA", 3, AddressingMode::ZeroPage)),
+            (0xb5, Instruction::new(CPU::lda, "LDA", 4, AddressingMode::ZeroPageX)),
+            (0xad, Instruction::new(CPU::lda, "LDA", 4, AddressingMode::Absolute)),
+            (0xbd, Instruction::new(CPU::lda, "LDA", 4, AddressingMode::AbsoluteX)),
+            (0xb9, Instruction::new(CPU::lda, "LDA", 4, AddressingMode::AbsoluteY)),
+            (0xa1, Instruction::new(CPU::lda, "LDA", 6, AddressingMode::IndirectX)),
+            (0xb1, Instruction::new(CPU::lda, "LDA", 5, AddressingMode::IndirectY)),
 
-            (0xa2, Instruction::new(2, &(CPU::ldx as OpcodeMethod), AddressingMode::Immediate)),
-            (0xa6, Instruction::new(3, &(CPU::ldx as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xb6, Instruction::new(4, &(CPU::ldx as OpcodeMethod), AddressingMode::ZeroPageY)),
-            (0xae, Instruction::new(4, &(CPU::ldx as OpcodeMethod), AddressingMode::Absolute)),
-            (0xbe, Instruction::new(4, &(CPU::ldx as OpcodeMethod), AddressingMode::AbsoluteY)),
+            (0xa2, Instruction::new(CPU::ldx, "LDX", 2, AddressingMode::Immediate)),
+            (0xa6, Instruction::new(CPU::ldx, "LDX", 3, AddressingMode::ZeroPage)),
+            (0xb6, Instruction::new(CPU::ldx, "LDX", 4, AddressingMode::ZeroPageY)),
+            (0xae, Instruction::new(CPU::ldx, "LDX", 4, AddressingMode::Absolute)),
+            (0xbe, Instruction::new(CPU::ldx, "LDX", 4, AddressingMode::AbsoluteY)),
 
-            (0xa0, Instruction::new(2, &(CPU::ldy as OpcodeMethod), AddressingMode::Immediate)),
-            (0xa4, Instruction::new(3, &(CPU::ldy as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xb4, Instruction::new(4, &(CPU::ldy as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0xac, Instruction::new(4, &(CPU::ldy as OpcodeMethod), AddressingMode::Absolute)),
-            (0xbc, Instruction::new(4, &(CPU::ldy as OpcodeMethod), AddressingMode::AbsoluteX)),
+            (0xa0, Instruction::new(CPU::ldy, "LDY", 2, AddressingMode::Immediate)),
+            (0xa4, Instruction::new(CPU::ldy, "LDY", 3, AddressingMode::ZeroPage)),
+            (0xb4, Instruction::new(CPU::ldy, "LDY", 4, AddressingMode::ZeroPageX)),
+            (0xac, Instruction::new(CPU::ldy, "LDY", 4, AddressingMode::Absolute)),
+            (0xbc, Instruction::new(CPU::ldy, "LDY", 4, AddressingMode::AbsoluteX)),
 
-            (0x85, Instruction::new(3, &(CPU::sta as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0x95, Instruction::new(4, &(CPU::sta as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0x8d, Instruction::new(4, &(CPU::sta as OpcodeMethod), AddressingMode::Absolute)),
-            (0x9d, Instruction::new(5, &(CPU::sta as OpcodeMethod), AddressingMode::AbsoluteX)),
-            (0x99, Instruction::new(5, &(CPU::sta as OpcodeMethod), AddressingMode::AbsoluteY)),
-            (0x81, Instruction::new(6, &(CPU::sta as OpcodeMethod), AddressingMode::IndirectX)),
-            (0x91, Instruction::new(6, &(CPU::sta as OpcodeMethod), AddressingMode::IndirectY)),
+            (0x85, Instruction::new(CPU::sta, "STA", 3, AddressingMode::ZeroPage)),
+            (0x95, Instruction::new(CPU::sta, "STA", 4, AddressingMode::ZeroPageX)),
+            (0x8d, Instruction::new(CPU::sta, "STA", 4, AddressingMode::Absolute)),
+            (0x9d, Instruction::new(CPU::sta, "STA", 5, AddressingMode::AbsoluteX)),
+            (0x99, Instruction::new(CPU::sta, "STA", 5, AddressingMode::AbsoluteY)),
+            (0x81, Instruction::new(CPU::sta, "STA", 6, AddressingMode::IndirectX)),
+            (0x91, Instruction::new(CPU::sta, "STA", 6, AddressingMode::IndirectY)),
 
-            (0x29, Instruction::new(2, &(CPU::and as OpcodeMethod), AddressingMode::Immediate)),
-            (0x25, Instruction::new(3, &(CPU::and as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0x35, Instruction::new(4, &(CPU::and as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0x2D, Instruction::new(4, &(CPU::and as OpcodeMethod), AddressingMode::Absolute)),
-            (0x3D, Instruction::new(4, &(CPU::and as OpcodeMethod), AddressingMode::AbsoluteX)),
-            (0x39, Instruction::new(4, &(CPU::and as OpcodeMethod), AddressingMode::AbsoluteY)),
-            (0x21, Instruction::new(6, &(CPU::and as OpcodeMethod), AddressingMode::IndirectX)),
-            (0x31, Instruction::new(5, &(CPU::and as OpcodeMethod), AddressingMode::IndirectY)),
+            (0x86, Instruction::new(CPU::stx, "STX", 3, AddressingMode::ZeroPage)),
+            (0x96, Instruction::new(CPU::stx, "STX", 4, AddressingMode::ZeroPageY)),
+            (0x8e, Instruction::new(CPU::stx, "STX", 4, AddressingMode::Absolute)),
 
-            (0x49, Instruction::new(2, &(CPU::eor as OpcodeMethod), AddressingMode::Immediate)),
-            (0x45, Instruction::new(3, &(CPU::eor as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0x55, Instruction::new(4, &(CPU::eor as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0x4D, Instruction::new(4, &(CPU::eor as OpcodeMethod), AddressingMode::Absolute)),
-            (0x5D, Instruction::new(4, &(CPU::eor as OpcodeMethod), AddressingMode::AbsoluteX)),
-            (0x59, Instruction::new(4, &(CPU::eor as OpcodeMethod), AddressingMode::AbsoluteY)),
-            (0x41, Instruction::new(6, &(CPU::eor as OpcodeMethod), AddressingMode::IndirectX)),
-            (0x51, Instruction::new(5, &(CPU::eor as OpcodeMethod), AddressingMode::IndirectY)),
+            (0x29, Instruction::new(CPU::and, "AND", 2, AddressingMode::Immediate)),
+            (0x25, Instruction::new(CPU::and, "AND", 3, AddressingMode::ZeroPage)),
+            (0x35, Instruction::new(CPU::and, "AND", 4, AddressingMode::ZeroPageX)),
+            (0x2D, Instruction::new(CPU::and, "AND", 4, AddressingMode::Absolute)),
+            (0x3D, Instruction::new(CPU::and, "AND", 4, AddressingMode::AbsoluteX)),
+            (0x39, Instruction::new(CPU::and, "AND", 4, AddressingMode::AbsoluteY)),
+            (0x21, Instruction::new(CPU::and, "AND", 6, AddressingMode::IndirectX)),
+            (0x31, Instruction::new(CPU::and, "AND", 5, AddressingMode::IndirectY)),
 
-            (0x09, Instruction::new(2, &(CPU::ora as OpcodeMethod), AddressingMode::Immediate)),
-            (0x05, Instruction::new(3, &(CPU::ora as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0x15, Instruction::new(4, &(CPU::ora as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0x0d, Instruction::new(4, &(CPU::ora as OpcodeMethod), AddressingMode::Absolute)),
-            (0x1d, Instruction::new(4, &(CPU::ora as OpcodeMethod), AddressingMode::AbsoluteX)),
-            (0x19, Instruction::new(4, &(CPU::ora as OpcodeMethod), AddressingMode::AbsoluteY)),
-            (0x01, Instruction::new(6, &(CPU::ora as OpcodeMethod), AddressingMode::IndirectX)),
-            (0x11, Instruction::new(5, &(CPU::ora as OpcodeMethod), AddressingMode::IndirectY)),
+            (0x49, Instruction::new(CPU::eor, "EOR", 2, AddressingMode::Immediate)),
+            (0x45, Instruction::new(CPU::eor, "EOR", 3, AddressingMode::ZeroPage)),
+            (0x55, Instruction::new(CPU::eor, "EOR", 4, AddressingMode::ZeroPageX)),
+            (0x4D, Instruction::new(CPU::eor, "EOR", 4, AddressingMode::Absolute)),
+            (0x5D, Instruction::new(CPU::eor, "EOR", 4, AddressingMode::AbsoluteX)),
+            (0x59, Instruction::new(CPU::eor, "EOR", 4, AddressingMode::AbsoluteY)),
+            (0x41, Instruction::new(CPU::eor, "EOR", 6, AddressingMode::IndirectX)),
+            (0x51, Instruction::new(CPU::eor, "EOR", 5, AddressingMode::IndirectY)),
 
-            (0x69, Instruction::new(2, &(CPU::adc as OpcodeMethod), AddressingMode::Immediate)),
-            (0x65, Instruction::new(3, &(CPU::adc as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0x75, Instruction::new(4, &(CPU::adc as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0x6d, Instruction::new(4, &(CPU::adc as OpcodeMethod), AddressingMode::Absolute)),
-            (0x7d, Instruction::new(4, &(CPU::adc as OpcodeMethod), AddressingMode::AbsoluteX)),
-            (0x79, Instruction::new(4, &(CPU::adc as OpcodeMethod), AddressingMode::AbsoluteY)),
-            (0x61, Instruction::new(6, &(CPU::adc as OpcodeMethod), AddressingMode::IndirectX)),
-            (0x71, Instruction::new(5, &(CPU::adc as OpcodeMethod), AddressingMode::IndirectY)),
+            (0x09, Instruction::new(CPU::ora, "ORA", 2, AddressingMode::Immediate)),
+            (0x05, Instruction::new(CPU::ora, "ORA", 3, AddressingMode::ZeroPage)),
+            (0x15, Instruction::new(CPU::ora, "ORA", 4, AddressingMode::ZeroPageX)),
+            (0x0d, Instruction::new(CPU::ora, "ORA", 4, AddressingMode::Absolute)),
+            (0x1d, Instruction::new(CPU::ora, "ORA", 4, AddressingMode::AbsoluteX)),
+            (0x19, Instruction::new(CPU::ora, "ORA", 4, AddressingMode::AbsoluteY)),
+            (0x01, Instruction::new(CPU::ora, "ORA", 6, AddressingMode::IndirectX)),
+            (0x11, Instruction::new(CPU::ora, "ORA", 5, AddressingMode::IndirectY)),
 
-            (0xe9, Instruction::new(2, &(CPU::sbc as OpcodeMethod), AddressingMode::Immediate)),
-            (0xe5, Instruction::new(3, &(CPU::sbc as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xf5, Instruction::new(4, &(CPU::sbc as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0xed, Instruction::new(4, &(CPU::sbc as OpcodeMethod), AddressingMode::Absolute)),
-            (0xfd, Instruction::new(4, &(CPU::sbc as OpcodeMethod), AddressingMode::AbsoluteX)),
-            (0xf9, Instruction::new(4, &(CPU::sbc as OpcodeMethod), AddressingMode::AbsoluteY)),
-            (0xe1, Instruction::new(6, &(CPU::sbc as OpcodeMethod), AddressingMode::IndirectX)),
-            (0xf1, Instruction::new(5, &(CPU::sbc as OpcodeMethod), AddressingMode::IndirectY)),
+            (0x69, Instruction::new(CPU::adc, "ADC", 2, AddressingMode::Immediate)),
+            (0x65, Instruction::new(CPU::adc, "ADC", 3, AddressingMode::ZeroPage)),
+            (0x75, Instruction::new(CPU::adc, "ADC", 4, AddressingMode::ZeroPageX)),
+            (0x6d, Instruction::new(CPU::adc, "ADC", 4, AddressingMode::Absolute)),
+            (0x7d, Instruction::new(CPU::adc, "ADC", 4, AddressingMode::AbsoluteX)),
+            (0x79, Instruction::new(CPU::adc, "ADC", 4, AddressingMode::AbsoluteY)),
+            (0x61, Instruction::new(CPU::adc, "ADC", 6, AddressingMode::IndirectX)),
+            (0x71, Instruction::new(CPU::adc, "ADC", 5, AddressingMode::IndirectY)),
 
-            (0xc9, Instruction::new(2, &(CPU::cmp as OpcodeMethod), AddressingMode::Immediate)),
-            (0xc5, Instruction::new(3, &(CPU::cmp as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xd5, Instruction::new(4, &(CPU::cmp as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0xcd, Instruction::new(4, &(CPU::cmp as OpcodeMethod), AddressingMode::Absolute)),
-            (0xdd, Instruction::new(4, &(CPU::cmp as OpcodeMethod), AddressingMode::AbsoluteX)),
-            (0xd9, Instruction::new(4, &(CPU::cmp as OpcodeMethod), AddressingMode::AbsoluteY)),
-            (0xc1, Instruction::new(6, &(CPU::cmp as OpcodeMethod), AddressingMode::IndirectX)),
-            (0xd1, Instruction::new(5, &(CPU::cmp as OpcodeMethod), AddressingMode::IndirectY)),
+            (0xe9, Instruction::new(CPU::sbc, "SBC", 2, AddressingMode::Immediate)),
+            (0xe5, Instruction::new(CPU::sbc, "SBC", 3, AddressingMode::ZeroPage)),
+            (0xf5, Instruction::new(CPU::sbc, "SBC", 4, AddressingMode::ZeroPageX)),
+            (0xed, Instruction::new(CPU::sbc, "SBC", 4, AddressingMode::Absolute)),
+            (0xfd, Instruction::new(CPU::sbc, "SBC", 4, AddressingMode::AbsoluteX)),
+            (0xf9, Instruction::new(CPU::sbc, "SBC", 4, AddressingMode::AbsoluteY)),
+            (0xe1, Instruction::new(CPU::sbc, "SBC", 6, AddressingMode::IndirectX)),
+            (0xf1, Instruction::new(CPU::sbc, "SBC", 5, AddressingMode::IndirectY)),
 
-            (0xe0, Instruction::new(2, &(CPU::cpx as OpcodeMethod), AddressingMode::Immediate)),
-            (0xe4, Instruction::new(3, &(CPU::cpx as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xec, Instruction::new(4, &(CPU::cpx as OpcodeMethod), AddressingMode::Absolute)),
+            (0xc9, Instruction::new(CPU::cmp, "CMP", 2, AddressingMode::Immediate)),
+            (0xc5, Instruction::new(CPU::cmp, "CMP", 3, AddressingMode::ZeroPage)),
+            (0xd5, Instruction::new(CPU::cmp, "CMP", 4, AddressingMode::ZeroPageX)),
+            (0xcd, Instruction::new(CPU::cmp, "CMP", 4, AddressingMode::Absolute)),
+            (0xdd, Instruction::new(CPU::cmp, "CMP", 4, AddressingMode::AbsoluteX)),
+            (0xd9, Instruction::new(CPU::cmp, "CMP", 4, AddressingMode::AbsoluteY)),
+            (0xc1, Instruction::new(CPU::cmp, "CMP", 6, AddressingMode::IndirectX)),
+            (0xd1, Instruction::new(CPU::cmp, "CMP", 5, AddressingMode::IndirectY)),
 
-            (0xc0, Instruction::new(2, &(CPU::cpy as OpcodeMethod), AddressingMode::Immediate)),
-            (0xc4, Instruction::new(3, &(CPU::cpy as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xcc, Instruction::new(4, &(CPU::cpy as OpcodeMethod), AddressingMode::Absolute)),
+            (0xe0, Instruction::new(CPU::cpx, "CPX", 2, AddressingMode::Immediate)),
+            (0xe4, Instruction::new(CPU::cpx, "CPX", 3, AddressingMode::ZeroPage)),
+            (0xec, Instruction::new(CPU::cpx, "CPX", 4, AddressingMode::Absolute)),
 
-            (0xf0, Instruction::new(2, &(CPU::beq as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xd0, Instruction::new(2, &(CPU::bne as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0xb0, Instruction::new(2, &(CPU::bcs as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x90, Instruction::new(2, &(CPU::bcc as OpcodeMethod), AddressingMode::NoneAddressing)),
+            (0xc0, Instruction::new(CPU::cpy, "CPY", 2, AddressingMode::Immediate)),
+            (0xc4, Instruction::new(CPU::cpy, "CPY", 3, AddressingMode::ZeroPage)),
+            (0xcc, Instruction::new(CPU::cpy, "CPY", 4, AddressingMode::Absolute)),
 
-            (0x10, Instruction::new(2, &(CPU::bpl as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x30, Instruction::new(2, &(CPU::bmi as OpcodeMethod), AddressingMode::NoneAddressing)),
+            (0xf0, Instruction::new(CPU::beq, "BEQ", 2, AddressingMode::Relative)),
+            (0xd0, Instruction::new(CPU::bne, "BNE", 2, AddressingMode::Relative)),
+            (0xb0, Instruction::new(CPU::bcs, "BCS", 2, AddressingMode::Relative)),
+            (0x90, Instruction::new(CPU::bcc, "BCC", 2, AddressingMode::Relative)),
+            (0x10, Instruction::new(CPU::bpl, "BPL", 2, AddressingMode::Relative)),
+            (0x30, Instruction::new(CPU::bmi, "BMI", 2, AddressingMode::Relative)),
+            (0x50, Instruction::new(CPU::bvc, "BVC", 2, AddressingMode::Relative)),
+            (0x70, Instruction::new(CPU::bvs, "BVS", 2, AddressingMode::Relative)),
 
-            (0xc6, Instruction::new(5, &(CPU::dec as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0xd6, Instruction::new(6, &(CPU::dec as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0xce, Instruction::new(6, &(CPU::dec as OpcodeMethod), AddressingMode::Absolute)),
-            (0xde, Instruction::new(7, &(CPU::dec as OpcodeMethod), AddressingMode::AbsoluteX)),
+            (0xc6, Instruction::new(CPU::dec, "DEC", 5, AddressingMode::ZeroPage)),
+            (0xd6, Instruction::new(CPU::dec, "DEC", 6, AddressingMode::ZeroPageX)),
+            (0xce, Instruction::new(CPU::dec, "DEC", 6, AddressingMode::Absolute)),
+            (0xde, Instruction::new(CPU::dec, "DEC", 7, AddressingMode::AbsoluteX)),
 
-            (0xca, Instruction::new(2, &(CPU::dex as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x88, Instruction::new(2, &(CPU::dey as OpcodeMethod), AddressingMode::NoneAddressing)),
+            (0xca, Instruction::new(CPU::dex, "DEX", 2, AddressingMode::None)),
+            (0x88, Instruction::new(CPU::dey, "DEY", 2, AddressingMode::None)),
 
-            (0x4a, Instruction::new(2, &(CPU::lsr as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x46, Instruction::new(5, &(CPU::lsr as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0x56, Instruction::new(6, &(CPU::lsr as OpcodeMethod), AddressingMode::ZeroPageX)),
-            (0x4e, Instruction::new(6, &(CPU::lsr as OpcodeMethod), AddressingMode::Absolute)),
-            (0x5e, Instruction::new(7, &(CPU::lsr as OpcodeMethod), AddressingMode::AbsoluteX)),
+            (0x4a, Instruction::new(CPU::lsr, "LSR", 2, AddressingMode::None)),
+            (0x46, Instruction::new(CPU::lsr, "LSR", 5, AddressingMode::ZeroPage)),
+            (0x56, Instruction::new(CPU::lsr, "LSR", 6, AddressingMode::ZeroPageX)),
+            (0x4e, Instruction::new(CPU::lsr, "LSR", 6, AddressingMode::Absolute)),
+            (0x5e, Instruction::new(CPU::lsr, "LSR", 7, AddressingMode::AbsoluteX)),
 
-            (0x24, Instruction::new(3, &(CPU::bit as OpcodeMethod), AddressingMode::ZeroPage)),
-            (0x2c, Instruction::new(4, &(CPU::bit as OpcodeMethod), AddressingMode::Absolute)),
+            (0x24, Instruction::new(CPU::bit, "BIT", 3, AddressingMode::ZeroPage)),
+            (0x2c, Instruction::new(CPU::bit, "BIT", 4, AddressingMode::Absolute)),
 
-            (0x4c, Instruction::new(3, &(CPU::jmp as OpcodeMethod), AddressingMode::Absolute)),
-            (0x6c, Instruction::new(5, &(CPU::jmp as OpcodeMethod), AddressingMode::Indirect)),
+            (0x4c, Instruction::new(CPU::jmp, "JMP", 3, AddressingMode::Absolute)),
+            (0x6c, Instruction::new(CPU::jmp, "JMP", 5, AddressingMode::Indirect)),
 
-            (0x48, Instruction::new(3, &(CPU::pha as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x68, Instruction::new(4, &(CPU::pla as OpcodeMethod), AddressingMode::NoneAddressing)),
+            (0x48, Instruction::new(CPU::pha, "PHA", 3, AddressingMode::None)),
+            (0x68, Instruction::new(CPU::pla, "PLA", 4, AddressingMode::None)),
 
-            (0x50, Instruction::new(2, &(CPU::bvc as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x70, Instruction::new(2, &(CPU::bvs as OpcodeMethod), AddressingMode::NoneAddressing)),
-
-            (0x08, Instruction::new(3, &(CPU::php as OpcodeMethod), AddressingMode::NoneAddressing)),
-            (0x28, Instruction::new(4, &(CPU::plp as OpcodeMethod), AddressingMode::NoneAddressing)),
+            (0x08, Instruction::new(CPU::php, "PHP", 3, AddressingMode::None)),
+            (0x28, Instruction::new(CPU::plp, "PLP", 4, AddressingMode::None)),
         ])
     };
 }
@@ -184,15 +188,22 @@ bitflags! {
 
 pub struct Instruction {
     method: OpcodeMethod,
+    name: &'static str,
     #[allow(dead_code)]
     cycles: u8,
     addressing_mode: AddressingMode,
 }
 
 impl Instruction {
-    fn new(cycles: u8, method: &OpcodeMethod, addressing_mode: AddressingMode) -> Self {
+    fn new(
+        method: OpcodeMethod,
+        name: &'static str,
+        cycles: u8,
+        addressing_mode: AddressingMode,
+    ) -> Self {
         Self {
-            method: *method,
+            method,
+            name,
             cycles,
             addressing_mode,
         }
@@ -205,13 +216,14 @@ pub enum AddressingMode {
     ZeroPage,
     ZeroPageX,
     ZeroPageY,
+    Relative,
     Absolute,
     AbsoluteX,
     AbsoluteY,
     Indirect,
     IndirectX,
     IndirectY,
-    NoneAddressing,
+    None,
 }
 
 pub struct CPU {
@@ -224,14 +236,139 @@ pub struct CPU {
     bus: Bus,
 }
 
+impl fmt::Debug for CPU {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let opcode = self.peek_u8(self.program_counter);
+        let instruction = match OP_CODES_MAP.get(&opcode) {
+            Some(instruction) => instruction,
+            None => todo!("opcode {opcode:02x} at {:04x}", self.program_counter),
+        };
+        let opcode = format!("{opcode:02X}");
+        let (bytes, instruction): (String, String) = match &instruction.addressing_mode {
+            AddressingMode::None => (opcode, instruction.name.to_string()),
+            AddressingMode::Relative => {
+                let x = self.peek_u8(self.program_counter + 1) as i8;
+                let bytes = [opcode, format!("{x:02X}")].join(" ");
+                let target = (self.program_counter + 2).wrapping_add_signed(x.into());
+                let instruction =
+                    [instruction.name.to_string(), format!("${target:04X}")].join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::Immediate => {
+                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
+                let bytes = [opcode, byte.clone()].join(" ");
+                let instruction = [instruction.name.to_string(), format!("#${byte}")].join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::ZeroPage => {
+                let x = self.peek_u8(self.program_counter + 1);
+                let byte_str = format!("{x:02X}");
+                let addr = byte_str.as_str();
+                let value = format!("{:02X}", self.peek_u8(x.into()));
+                let bytes = [opcode, byte_str.clone()].join(" ");
+                let instruction =
+                    [instruction.name.to_string(), format!("${addr} = {value}")].join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::ZeroPageX => {
+                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
+                let bytes = [opcode, byte.clone()].join(" ");
+                let instruction = [
+                    instruction.name.to_string(),
+                    format!("${},X", byte.as_str()),
+                ]
+                    .join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::ZeroPageY => {
+                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
+                let bytes = [opcode, byte.clone()].join(" ");
+                let instruction = [
+                    instruction.name.to_string(),
+                    format!("${},Y", byte.as_str()),
+                ]
+                    .join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::IndirectX => {
+                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
+                let bytes = [opcode, byte.clone()].join(" ");
+                let instruction = [
+                    instruction.name.to_string(),
+                    format!("(${},X)", byte.as_str()),
+                ]
+                    .join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::IndirectY => {
+                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
+                let bytes = [opcode, byte.clone()].join(" ");
+                let instruction = [
+                    instruction.name.to_string(),
+                    format!("(${},Y)", byte.as_str()),
+                ]
+                    .join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::Absolute => {
+                let lo = self.peek_u8(self.program_counter + 1);
+                let hi = self.peek_u8(self.program_counter + 2);
+                let bytes = [opcode, format!("{lo:02X} {hi:02X}")].join(" ");
+                let instruction = [
+                    instruction.name.to_string(),
+                    format!("${:04X}", u16::from_le_bytes([lo, hi])),
+                ]
+                    .join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::AbsoluteX => {
+                let lo = self.peek_u8(self.program_counter + 1);
+                let hi = self.peek_u8(self.program_counter + 2);
+                let bytes = [opcode, format!("{lo:02X} {hi:02X}")].join(" ");
+                let instruction = [
+                    instruction.name.to_string(),
+                    format!("${:04X},X", u16::from_le_bytes([lo, hi])),
+                ]
+                    .join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::AbsoluteY => {
+                let lo = self.peek_u8(self.program_counter + 1);
+                let hi = self.peek_u8(self.program_counter + 2);
+                let bytes = [opcode, format!("{lo:02X} {hi:02X}")].join(" ");
+                let instruction = [
+                    instruction.name.to_string(),
+                    format!("${:04X},Y", u16::from_le_bytes([lo, hi])),
+                ]
+                    .join(" ");
+                (bytes, instruction)
+            }
+            AddressingMode::Indirect => {
+                todo!()
+            }
+        };
+
+        write!(
+            f,
+            "{:04X}  {bytes:<8}  {instruction:<30}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+            self.program_counter,
+            self.register_a,
+            self.register_x,
+            self.register_y,
+            self.status.bits(),
+            self.stack_pointer,
+        )
+    }
+}
+
 impl CPU {
     pub fn new(bus: Bus) -> Self {
         Self {
             register_a: 0,
             register_x: 0,
             register_y: 0,
-            status: StatusFlags::from_bits_truncate(0b0010_0000),
-            stack_pointer: 0xff,
+            status: StatusFlags::from_bits_truncate(0b0010_0100),
+            stack_pointer: 0xfd,
             program_counter: 0,
             bus,
         }
@@ -241,11 +378,11 @@ impl CPU {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
-        self.status = StatusFlags::from_bits_truncate(0b0010_0000);
+        self.status = StatusFlags::from_bits_truncate(0b0010_0100);
         self.program_counter = self.peek_u16(0xfffc);
     }
 
-    pub fn peek_u8(&mut self, addr: u16) -> u8 {
+    pub fn peek_u8(&self, addr: u16) -> u8 {
         self.bus.mem_read(addr)
     }
 
@@ -337,9 +474,11 @@ impl CPU {
                     self.bus.mem_read(base.into()),
                     self.bus.mem_read(base.wrapping_add(1).into()),
                 ])
-                .wrapping_add(self.register_y.into())
+                    .wrapping_add(self.register_y.into())
             }
-            AddressingMode::NoneAddressing => panic!("mode {:?} is not supported", mode),
+            AddressingMode::None | AddressingMode::Relative => {
+                panic!("mode {:?} is not supported", mode)
+            }
         }
     }
 
@@ -349,11 +488,12 @@ impl CPU {
     }
 
     pub fn run_with_callback<F>(&mut self, mut callback: F)
-    where
-        F: FnMut(&mut CPU),
+        where
+            F: FnMut(&mut CPU),
     {
         loop {
             if self.status.contains(StatusFlags::BREAK_COMMAND) {
+                dbg!("break", self.program_counter);
                 return;
             }
 
@@ -370,6 +510,7 @@ impl CPU {
     }
 
     fn brk(&mut self, _mode: &AddressingMode) {
+        dbg!("brk", self.program_counter);
         self.status.insert(StatusFlags::BREAK_COMMAND);
     }
 
@@ -490,16 +631,16 @@ impl CPU {
         self.program_counter = self.operand_address(mode);
     }
 
+    /// test BITs
     fn bit(&mut self, mode: &AddressingMode) {
         let addr = self.operand_address(mode);
         let value = self.peek_u8(addr);
         self.status
-            .set(StatusFlags::OVERFLOW, value & 0b0100_0000 == 1);
+            .set(StatusFlags::ZERO, value & self.register_a == 0);
         self.status
-            .set(StatusFlags::NEGATIVE, value & 0b1000_0000 == 1);
-        if value & self.register_a == 0 {
-            self.status.insert(StatusFlags::ZERO);
-        }
+            .set(StatusFlags::OVERFLOW, value & 0b0100_0000 != 0);
+        self.status
+            .set(StatusFlags::NEGATIVE, value & 0b1000_0000 != 0);
     }
 
     fn cpy(&mut self, mode: &AddressingMode) {
@@ -537,7 +678,7 @@ impl CPU {
 
     fn lsr(&mut self, mode: &AddressingMode) {
         let result = match mode {
-            AddressingMode::NoneAddressing => {
+            AddressingMode::None => {
                 self.status
                     .set(StatusFlags::CARRY, self.register_a & 0b0000_0001 == 1);
                 self.register_a = self.register_a.wrapping_shr(1);
@@ -570,12 +711,19 @@ impl CPU {
     }
 
     fn adc(&mut self, mode: &AddressingMode) {
+        use crate::carrying::CarryingExt;
+
         let addr = self.operand_address(mode);
-        let (value, overflow1) = self.register_a.overflowing_add(self.peek_u8(addr));
-        let (result, overflow2) =
-            value.overflowing_add(self.status.contains(StatusFlags::CARRY) as u8);
+        let value = self.peek_u8(addr);
+
+        let carry = self.status.contains(StatusFlags::CARRY);
+        // TODO: Use `carrying_add` when stable.
+        let (result, carry) = self.register_a.add_carrying(value, carry);
+        let (_, overflow) = (self.register_a as i8).add_carrying(value as i8, carry);
+
         self.register_a = result;
-        self.status.set(StatusFlags::CARRY, overflow1 || overflow2);
+        self.status.set(StatusFlags::CARRY, carry);
+        self.status.set(StatusFlags::OVERFLOW, overflow);
         self.update_zero_and_negative_flags(self.register_a);
     }
 
@@ -612,6 +760,11 @@ impl CPU {
         self.write_u8(addr, self.register_a);
     }
 
+    fn stx(&mut self, mode: &AddressingMode) {
+        let addr = self.operand_address(mode);
+        self.write_u8(addr, self.register_x);
+    }
+
     fn ldy(&mut self, mode: &AddressingMode) {
         let addr = self.operand_address(mode);
         self.register_y = self.peek_u8(addr);
@@ -630,29 +783,37 @@ impl CPU {
         self.update_zero_and_negative_flags(self.register_a);
     }
 
+    /// PuLl Accumulator
     fn pla(&mut self, _mode: &AddressingMode) {
-        self.register_a = self.peek_u8(self.stack_pointer as u16 + STACK_BASE);
-        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        self.register_a = self.stack_pop_u8();
         self.update_zero_and_negative_flags(self.register_a);
     }
 
+    /// PusH Accumulator
     fn pha(&mut self, _mode: &AddressingMode) {
-        self.write_u8(self.stack_pointer as u16 + STACK_BASE, self.register_a);
-        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+        self.stack_push_u8(self.register_a);
     }
 
+    /// PuLl Processor status
     fn plp(&mut self, _mode: &AddressingMode) {
-        self.status = StatusFlags::from_bits_truncate(self.stack_pop_u8());
+        let mut flags = StatusFlags::from_bits_truncate(self.stack_pop_u8());
+        flags -= StatusFlags::BREAK_COMMAND;
+        flags |= StatusFlags::UNUSED;
+        self.status = flags;
     }
 
+    /// PusH Processor status
     fn php(&mut self, _mode: &AddressingMode) {
-        self.stack_push_u8(self.status.bits());
+        let result = self.status.bits() | StatusFlags::BREAK_COMMAND.bits();
+        self.stack_push_u8(result);
     }
 
+    /// Transfer X to Stack ptr
     fn txs(&mut self, _mode: &AddressingMode) {
         self.stack_pointer = self.register_x;
     }
 
+    /// Transfer Stack ptr to X
     fn tsx(&mut self, _mode: &AddressingMode) {
         self.register_x = self.stack_pointer;
         self.update_zero_and_negative_flags(self.register_x);
@@ -664,6 +825,7 @@ mod test {
     use crate::bus::Bus;
     use crate::cpu::{StatusFlags, CPU};
     use crate::rom::tests::test_rom;
+    use crate::rom::Rom;
 
     #[test]
     fn test_0xa9_lda_immediate_load_data() {
@@ -795,5 +957,22 @@ mod test {
 
         assert_eq!(cpu.register_x, 0xff);
         assert!(cpu.status.contains(StatusFlags::NEGATIVE));
+    }
+
+    #[test]
+    fn nestest() {
+        let nestest = include_bytes!("nestest.nes");
+        let rom = Rom::new(&nestest.to_vec()).unwrap();
+        let bus = Bus::new(rom);
+        let mut cpu = CPU::new(bus);
+        cpu.reset();
+        cpu.program_counter = 0xc000;
+        let expected: Vec<_> = include_str!("nestest_no_cycle.log").lines().collect();
+        let mut i = 0;
+        cpu.run_with_callback(|cpu| {
+            dbg!(i);
+            pretty_assertions::assert_eq!(format!("{cpu:?}"), expected[i]);
+            i += 1;
+        });
     }
 }

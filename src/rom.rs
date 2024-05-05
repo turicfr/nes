@@ -76,15 +76,14 @@ impl Rom {
             return Err("NES 2.0 format is not supported".to_string());
         }
 
-        let skip_trainer = header.flags6.contains(Flags6::TRAINER);
-        let prg_rom_start: usize = 16 + if skip_trainer { TRAINER_SIZE } else { 0 };
+        let has_trainer = header.flags6.contains(Flags6::TRAINER);
+        let prg_rom_start: usize = 16 + if has_trainer { TRAINER_SIZE } else { 0 };
         let chr_rom_start = prg_rom_start + header.prg_rom_size as usize * PRG_ROM_PAGE_SIZE;
+        let chr_rom_end = chr_rom_start + header.chr_rom_size as usize * CHR_ROM_PAGE_SIZE;
 
         Ok(Rom {
             prg_rom: raw[prg_rom_start..chr_rom_start].to_vec(),
-            chr_rom: raw
-                [chr_rom_start..chr_rom_start + header.chr_rom_size as usize * CHR_ROM_PAGE_SIZE]
-                .to_vec(),
+            chr_rom: raw[chr_rom_start..chr_rom_end].to_vec(),
             mapper,
             screen_mirroring,
         })
