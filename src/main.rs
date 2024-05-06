@@ -10,9 +10,9 @@ use std::fs::File;
 use std::io::Read;
 
 mod bus;
+mod carrying;
 mod cpu;
 mod rom;
-mod carrying;
 
 fn color(byte: u8) -> Color {
     match byte {

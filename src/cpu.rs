@@ -1,17 +1,21 @@
 use crate::bus::Bus;
+use crate::carrying::CarryingExt;
 use bitflags::bitflags;
 use lazy_static::lazy_static;
+use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
+use std::ops::Shl;
 
 const STACK_BASE: u16 = 0x100;
 
 type OpcodeMethod = fn(&mut CPU, &AddressingMode);
 
-#[rustfmt::skip]
 lazy_static! {
-    // Instruction reference: https://www.nesdev.org/obelisk-6502-guide/reference.html
+    // References:
+    // * https://www.nesdev.org/obelisk-6502-guide/reference.html
+    // * https://web.archive.org/web/20220831224234if_/https://users.telenet.be/kim1-6502/6502/proman.html
     pub static ref OP_CODES_MAP: HashMap<u8, Instruction> = {
         HashMap::from([
             (0x00, Instruction::new(CPU::brk, "BRK", 7, AddressingMode::None)),
@@ -70,6 +74,10 @@ lazy_static! {
             (0x86, Instruction::new(CPU::stx, "STX", 3, AddressingMode::ZeroPage)),
             (0x96, Instruction::new(CPU::stx, "STX", 4, AddressingMode::ZeroPageY)),
             (0x8e, Instruction::new(CPU::stx, "STX", 4, AddressingMode::Absolute)),
+
+            (0x84, Instruction::new(CPU::sty, "STY", 3, AddressingMode::ZeroPage)),
+            (0x94, Instruction::new(CPU::sty, "STY", 4, AddressingMode::ZeroPageX)),
+            (0x8c, Instruction::new(CPU::sty, "STY", 4, AddressingMode::Absolute)),
 
             (0x29, Instruction::new(CPU::and, "AND", 2, AddressingMode::Immediate)),
             (0x25, Instruction::new(CPU::and, "AND", 3, AddressingMode::ZeroPage)),
@@ -150,7 +158,7 @@ lazy_static! {
             (0xca, Instruction::new(CPU::dex, "DEX", 2, AddressingMode::None)),
             (0x88, Instruction::new(CPU::dey, "DEY", 2, AddressingMode::None)),
 
-            (0x4a, Instruction::new(CPU::lsr, "LSR", 2, AddressingMode::None)),
+            (0x4a, Instruction::new(CPU::lsr, "LSR", 2, AddressingMode::Accumulator)),
             (0x46, Instruction::new(CPU::lsr, "LSR", 5, AddressingMode::ZeroPage)),
             (0x56, Instruction::new(CPU::lsr, "LSR", 6, AddressingMode::ZeroPageX)),
             (0x4e, Instruction::new(CPU::lsr, "LSR", 6, AddressingMode::Absolute)),
@@ -167,6 +175,29 @@ lazy_static! {
 
             (0x08, Instruction::new(CPU::php, "PHP", 3, AddressingMode::None)),
             (0x28, Instruction::new(CPU::plp, "PLP", 4, AddressingMode::None)),
+
+            (0xa8, Instruction::new(CPU::tay, "TAY", 2, AddressingMode::None)),
+            (0x98, Instruction::new(CPU::tya, "TYA", 2, AddressingMode::None)),
+
+            (0x40, Instruction::new(CPU::rti, "RTI", 6, AddressingMode::None)),
+
+            (0x0a, Instruction::new(CPU::asl, "ASL", 2, AddressingMode::Accumulator)),
+            (0x06, Instruction::new(CPU::asl, "ASL", 5, AddressingMode::ZeroPage)),
+            (0x16, Instruction::new(CPU::asl, "ASL", 6, AddressingMode::ZeroPageX)),
+            (0x0e, Instruction::new(CPU::asl, "ASL", 6, AddressingMode::Absolute)),
+            (0x1e, Instruction::new(CPU::asl, "ASL", 7, AddressingMode::AbsoluteX)),
+
+            (0x2a, Instruction::new(CPU::rol, "ROL", 2, AddressingMode::Accumulator)),
+            (0x26, Instruction::new(CPU::rol, "ROL", 5, AddressingMode::ZeroPage)),
+            (0x36, Instruction::new(CPU::rol, "ROL", 6, AddressingMode::ZeroPageX)),
+            (0x2e, Instruction::new(CPU::rol, "ROL", 6, AddressingMode::Absolute)),
+            (0x3e, Instruction::new(CPU::rol, "ROL", 7, AddressingMode::AbsoluteX)),
+
+            (0x6a, Instruction::new(CPU::ror, "ROR", 2, AddressingMode::Accumulator)),
+            (0x66, Instruction::new(CPU::ror, "ROR", 5, AddressingMode::ZeroPage)),
+            (0x76, Instruction::new(CPU::ror, "ROR", 6, AddressingMode::ZeroPageX)),
+            (0x6e, Instruction::new(CPU::ror, "ROR", 6, AddressingMode::Absolute)),
+            (0x7e, Instruction::new(CPU::ror, "ROR", 7, AddressingMode::AbsoluteX)),
         ])
     };
 }
@@ -210,7 +241,7 @@ impl Instruction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AddressingMode {
     Immediate,
     ZeroPage,
@@ -223,6 +254,7 @@ pub enum AddressingMode {
     Indirect,
     IndirectX,
     IndirectY,
+    Accumulator,
     None,
 }
 
@@ -236,115 +268,130 @@ pub struct CPU {
     bus: Bus,
 }
 
+#[cfg(test)]
 impl fmt::Debug for CPU {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        use std::fmt::Write;
+
         let opcode = self.peek_u8(self.program_counter);
         let instruction = match OP_CODES_MAP.get(&opcode) {
             Some(instruction) => instruction,
             None => todo!("opcode {opcode:02x} at {:04x}", self.program_counter),
         };
         let opcode = format!("{opcode:02X}");
-        let (bytes, instruction): (String, String) = match &instruction.addressing_mode {
-            AddressingMode::None => (opcode, instruction.name.to_string()),
+        let name = instruction.name;
+        let (bytes, instruction) = match &instruction.addressing_mode {
+            AddressingMode::None => (opcode, format!("{name}")),
+            AddressingMode::Accumulator => (opcode, format!("{name} A")),
+
+            // 2 bytes
             AddressingMode::Relative => {
-                let x = self.peek_u8(self.program_counter + 1) as i8;
-                let bytes = [opcode, format!("{x:02X}")].join(" ");
-                let target = (self.program_counter + 2).wrapping_add_signed(x.into());
-                let instruction =
-                    [instruction.name.to_string(), format!("${target:04X}")].join(" ");
+                let offset = self.peek_u8(self.program_counter + 1) as i8;
+                let bytes = format!("{opcode} {offset:02X}");
+                let target = (self.program_counter + 2).wrapping_add_signed(offset.into());
+                let instruction = format!("{name} ${target:04X}");
                 (bytes, instruction)
             }
             AddressingMode::Immediate => {
-                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
-                let bytes = [opcode, byte.clone()].join(" ");
-                let instruction = [instruction.name.to_string(), format!("#${byte}")].join(" ");
+                let byte = self.peek_u8(self.program_counter + 1);
+                let bytes = format!("{opcode} {byte:02X}");
+                let instruction = format!("{name} #${byte:02X}");
                 (bytes, instruction)
             }
             AddressingMode::ZeroPage => {
-                let x = self.peek_u8(self.program_counter + 1);
-                let byte_str = format!("{x:02X}");
-                let addr = byte_str.as_str();
-                let value = format!("{:02X}", self.peek_u8(x.into()));
-                let bytes = [opcode, byte_str.clone()].join(" ");
-                let instruction =
-                    [instruction.name.to_string(), format!("${addr} = {value}")].join(" ");
+                let byte = self.peek_u8(self.program_counter + 1);
+                let bytes = format!("{opcode} {byte:02X}");
+                let instruction = format!("{name} ${byte:02X} = {:02X}", self.peek_u8(byte.into()));
                 (bytes, instruction)
             }
             AddressingMode::ZeroPageX => {
-                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
-                let bytes = [opcode, byte.clone()].join(" ");
-                let instruction = [
-                    instruction.name.to_string(),
-                    format!("${},X", byte.as_str()),
-                ]
-                    .join(" ");
+                let byte = self.peek_u8(self.program_counter + 1);
+                let addr = byte.wrapping_add(self.register_x);
+                let value = self.peek_u8(addr.into());
+
+                let bytes = format!("{opcode} {byte:02X}");
+                let instruction = format!("{name} ${byte:02X},X @ {addr:02X} = {value:02X}");
                 (bytes, instruction)
             }
             AddressingMode::ZeroPageY => {
-                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
-                let bytes = [opcode, byte.clone()].join(" ");
-                let instruction = [
-                    instruction.name.to_string(),
-                    format!("${},Y", byte.as_str()),
-                ]
-                    .join(" ");
+                let byte = self.peek_u8(self.program_counter + 1);
+                let addr = byte.wrapping_add(self.register_y);
+                let value = self.peek_u8(addr.into());
+
+                let bytes = format!("{opcode} {byte:02X}");
+                let instruction = format!("{name} ${byte:02X},Y @ {addr:02X} = {value:02X}");
                 (bytes, instruction)
             }
             AddressingMode::IndirectX => {
-                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
-                let bytes = [opcode, byte.clone()].join(" ");
-                let instruction = [
-                    instruction.name.to_string(),
-                    format!("(${},X)", byte.as_str()),
-                ]
-                    .join(" ");
+                let offset = self.peek_u8(self.program_counter + 1);
+                let ptr = offset.wrapping_add(self.register_x);
+                let target_addr = self.peek_u16_zero_page(ptr);
+                let value = self.peek_u8(target_addr);
+
+                let bytes = format!("{opcode} {offset:02X}");
+                let instruction = format!(
+                    "{name} (${offset:02X},X) @ {ptr:02X} = {target_addr:04X} = {value:02X}"
+                );
                 (bytes, instruction)
             }
             AddressingMode::IndirectY => {
-                let byte = format!("{:02X}", self.peek_u8(self.program_counter + 1));
-                let bytes = [opcode, byte.clone()].join(" ");
-                let instruction = [
-                    instruction.name.to_string(),
-                    format!("(${},Y)", byte.as_str()),
-                ]
-                    .join(" ");
+                let byte = self.peek_u8(self.program_counter + 1);
+                let base = self.peek_u16_zero_page(byte);
+                let addr = base.wrapping_add(self.register_y.into());
+                let value = self.peek_u8(addr);
+
+                let bytes = format!("{opcode} {byte:02X}");
+                let instruction =
+                    format!("{name} (${byte:02X}),Y = {base:04X} @ {addr:04X} = {value:02X}");
                 (bytes, instruction)
             }
+
+            // 3 bytes
             AddressingMode::Absolute => {
                 let lo = self.peek_u8(self.program_counter + 1);
                 let hi = self.peek_u8(self.program_counter + 2);
-                let bytes = [opcode, format!("{lo:02X} {hi:02X}")].join(" ");
-                let instruction = [
-                    instruction.name.to_string(),
-                    format!("${:04X}", u16::from_le_bytes([lo, hi])),
-                ]
-                    .join(" ");
+                let bytes = format!("{opcode} {lo:02X} {hi:02X}");
+                let addr = u16::from_le_bytes([lo, hi]);
+                let mut instruction = format!("{name} ${addr:04X}");
+                if !name.starts_with("J") {
+                    let _ = write!(instruction, " = {:02X}", self.peek_u8(addr));
+                }
                 (bytes, instruction)
             }
             AddressingMode::AbsoluteX => {
                 let lo = self.peek_u8(self.program_counter + 1);
                 let hi = self.peek_u8(self.program_counter + 2);
-                let bytes = [opcode, format!("{lo:02X} {hi:02X}")].join(" ");
-                let instruction = [
-                    instruction.name.to_string(),
-                    format!("${:04X},X", u16::from_le_bytes([lo, hi])),
-                ]
-                    .join(" ");
+                let ptr = u16::from_le_bytes([lo, hi]);
+                let addr = ptr.wrapping_add(self.register_x.into());
+                let value = self.peek_u8(addr);
+
+                let bytes = format!("{opcode} {lo:02X} {hi:02X}");
+                let instruction = format!("{name} ${ptr:04X},X @ {addr:04X} = {value:02X}");
                 (bytes, instruction)
             }
             AddressingMode::AbsoluteY => {
                 let lo = self.peek_u8(self.program_counter + 1);
                 let hi = self.peek_u8(self.program_counter + 2);
-                let bytes = [opcode, format!("{lo:02X} {hi:02X}")].join(" ");
-                let instruction = [
-                    instruction.name.to_string(),
-                    format!("${:04X},Y", u16::from_le_bytes([lo, hi])),
-                ]
-                    .join(" ");
+                let ptr = u16::from_le_bytes([lo, hi]);
+                let addr = ptr.wrapping_add(self.register_y.into());
+                let value = self.peek_u8(addr);
+
+                let bytes = format!("{opcode} {lo:02X} {hi:02X}");
+                let instruction = format!("{name} ${ptr:04X},Y @ {addr:04X} = {value:02X}");
                 (bytes, instruction)
             }
             AddressingMode::Indirect => {
-                todo!()
+                let lo = self.peek_u8(self.program_counter + 1);
+                let hi = self.peek_u8(self.program_counter + 2);
+                let ptr = u16::from_le_bytes([lo, hi]);
+                let addr = u16::from_le_bytes([
+                    self.peek_u8(ptr),
+                    self.peek_u8(u16::from_le_bytes([lo.wrapping_add(1), hi])),
+                ]);
+
+                let bytes = format!("{opcode} {lo:02X} {hi:02X}");
+                let instruction = format!("{name} (${ptr:04X}) = {addr:04X}");
+                (bytes, instruction)
             }
         };
 
@@ -400,8 +447,15 @@ impl CPU {
         u16::from_le_bytes([self.read_u8(), self.read_u8()])
     }
 
-    fn peek_u16(&mut self, addr: u16) -> u16 {
+    fn peek_u16(&self, addr: u16) -> u16 {
         u16::from_le_bytes([self.peek_u8(addr), self.peek_u8(addr.wrapping_add(1))])
+    }
+
+    fn peek_u16_zero_page(&self, addr: u8) -> u16 {
+        u16::from_le_bytes([
+            self.peek_u8(addr.into()),
+            self.peek_u8(addr.wrapping_add(1).into()),
+        ])
     }
 
     pub fn write_u8(&mut self, addr: u16, data: u8) {
@@ -459,25 +513,24 @@ impl CPU {
             AddressingMode::AbsoluteX => self.read_u16().wrapping_add(self.register_x.into()),
             AddressingMode::AbsoluteY => self.read_u16().wrapping_add(self.register_y.into()),
             AddressingMode::Indirect => {
-                todo!()
+                let lo = self.read_u8();
+                let hi = self.read_u8();
+                u16::from_le_bytes([
+                    self.peek_u8(u16::from_le_bytes([lo, hi])),
+                    self.peek_u8(u16::from_le_bytes([lo.wrapping_add(1), hi])),
+                ])
             }
             AddressingMode::IndirectX => {
                 let ptr = self.read_u8().wrapping_add(self.register_x);
-                u16::from_le_bytes([
-                    self.bus.mem_read(ptr.into()),
-                    self.bus.mem_read(ptr.wrapping_add(1).into()),
-                ])
+                self.peek_u16_zero_page(ptr)
             }
             AddressingMode::IndirectY => {
                 let base = self.read_u8();
-                u16::from_le_bytes([
-                    self.bus.mem_read(base.into()),
-                    self.bus.mem_read(base.wrapping_add(1).into()),
-                ])
+                self.peek_u16_zero_page(base.into())
                     .wrapping_add(self.register_y.into())
             }
-            AddressingMode::None | AddressingMode::Relative => {
-                panic!("mode {:?} is not supported", mode)
+            AddressingMode::None | AddressingMode::Relative | AddressingMode::Accumulator => {
+                panic!("AddressingMode::{:?} is not supported", mode)
             }
         }
     }
@@ -488,8 +541,8 @@ impl CPU {
     }
 
     pub fn run_with_callback<F>(&mut self, mut callback: F)
-        where
-            F: FnMut(&mut CPU),
+    where
+        F: FnMut(&mut CPU),
     {
         loop {
             if self.status.contains(StatusFlags::BREAK_COMMAND) {
@@ -512,6 +565,81 @@ impl CPU {
     fn brk(&mut self, _mode: &AddressingMode) {
         dbg!("brk", self.program_counter);
         self.status.insert(StatusFlags::BREAK_COMMAND);
+    }
+
+    fn rti(&mut self, _mode: &AddressingMode) {
+        let mut status = StatusFlags::from_bits_truncate(self.stack_pop_u8());
+        // TODO: Actually implement this.
+        let _ = self.stack_pop_u16();
+        status -= StatusFlags::BREAK_COMMAND;
+        status |= StatusFlags::UNUSED;
+        self.status = status;
+    }
+
+    fn asl(&mut self, mode: &AddressingMode) {
+        let result = if mode == &AddressingMode::Accumulator {
+            self.status
+                .set(StatusFlags::CARRY, self.register_a & 0b1000_0000 != 0);
+            self.register_a <<= 1;
+            self.register_a
+        } else {
+            let addr = self.operand_address(mode);
+            let value = self.peek_u8(addr);
+            self.status
+                .set(StatusFlags::CARRY, value & 0b1000_0000 != 0);
+            let result = value << 1;
+            self.write_u8(addr, result);
+            result
+        };
+
+        self.update_zero_and_negative_flags(result);
+    }
+
+    fn rol(&mut self, mode: &AddressingMode) {
+        let result = if mode == &AddressingMode::Accumulator {
+            self.status
+                .set(StatusFlags::CARRY, self.register_a & 0b1000_0000 != 0);
+
+            self.register_a <<= 1;
+            self.register_a |= self.status.contains(StatusFlags::CARRY) as u8;
+            self.register_a
+        } else {
+            let addr = self.operand_address(mode);
+            let mut value = self.peek_u8(addr);
+
+            self.status
+                .set(StatusFlags::CARRY, value & 0b1000_0000 != 0);
+
+            value <<= 1;
+            value |= self.status.contains(StatusFlags::CARRY) as u8;
+            self.write_u8(addr, value);
+            value
+        };
+
+        self.update_zero_and_negative_flags(result);
+    }
+
+    fn ror(&mut self, mode: &AddressingMode) {
+        let result = if mode == &AddressingMode::Accumulator {
+            let old_bit = self.register_a & 0b1;
+            self.register_a >>= 1;
+            self.register_a |= (self.status.contains(StatusFlags::CARRY) as u8).shl(7);
+            self.status.set(StatusFlags::CARRY, old_bit != 0);
+            self.register_a
+        } else {
+            let addr = self.operand_address(mode);
+            let mut value = self.peek_u8(addr);
+
+            let old_bit = value & 0b1;
+            value >>= 1;
+            value |= (self.status.contains(StatusFlags::CARRY) as u8).shl(7);
+            self.status.set(StatusFlags::CARRY, old_bit != 0);
+
+            self.write_u8(addr, value);
+            value
+        };
+
+        self.update_zero_and_negative_flags(result);
     }
 
     fn nop(&mut self, _mode: &AddressingMode) {}
@@ -647,10 +775,9 @@ impl CPU {
         let addr = self.operand_address(mode);
         let value = self.peek_u8(addr);
         let result = self.register_y.wrapping_sub(value);
-        if self.register_y >= self.peek_u8(addr) {
-            self.status.insert(StatusFlags::CARRY);
-        }
 
+        self.status
+            .set(StatusFlags::CARRY, self.register_y >= value);
         self.update_zero_and_negative_flags(result);
     }
 
@@ -658,10 +785,9 @@ impl CPU {
         let addr = self.operand_address(mode);
         let value = self.peek_u8(addr);
         let result = self.register_x.wrapping_sub(value);
-        if self.register_x >= value {
-            self.status.insert(StatusFlags::CARRY);
-        }
 
+        self.status
+            .set(StatusFlags::CARRY, self.register_x >= value);
         self.update_zero_and_negative_flags(result);
     }
 
@@ -669,30 +795,26 @@ impl CPU {
         let addr = self.operand_address(mode);
         let value = self.peek_u8(addr);
         let result = self.register_a.wrapping_sub(value);
-        if self.register_a >= value {
-            self.status.insert(StatusFlags::CARRY);
-        }
 
+        self.status
+            .set(StatusFlags::CARRY, self.register_a >= value);
         self.update_zero_and_negative_flags(result);
     }
 
     fn lsr(&mut self, mode: &AddressingMode) {
-        let result = match mode {
-            AddressingMode::None => {
-                self.status
-                    .set(StatusFlags::CARRY, self.register_a & 0b0000_0001 == 1);
-                self.register_a = self.register_a.wrapping_shr(1);
-                self.register_a
-            }
-            _ => {
-                let addr = self.operand_address(mode);
-                let value = self.bus.mem_read(addr);
-                self.status
-                    .set(StatusFlags::CARRY, value & 0b0000_0001 == 1);
-                let result = value.wrapping_shr(1);
-                self.write_u8(addr, result);
-                result
-            }
+        let result = if mode == &AddressingMode::Accumulator {
+            self.status
+                .set(StatusFlags::CARRY, self.register_a & 0b0000_0001 != 0);
+            self.register_a = self.register_a.wrapping_shr(1);
+            self.register_a
+        } else {
+            let addr = self.operand_address(mode);
+            let value = self.bus.mem_read(addr);
+            self.status
+                .set(StatusFlags::CARRY, value & 0b0000_0001 != 0);
+            let result = value.wrapping_shr(1);
+            self.write_u8(addr, result);
+            result
         };
 
         self.update_zero_and_negative_flags(result);
@@ -700,26 +822,27 @@ impl CPU {
 
     fn sbc(&mut self, mode: &AddressingMode) {
         let addr = self.operand_address(mode);
-        let (value, overflow1) = self.register_a.overflowing_sub(self.peek_u8(addr));
-        let (result, overflow2) =
-            value.overflowing_sub(!self.status.contains(StatusFlags::CARRY) as u8);
-        if overflow1 || overflow2 {
-            self.status.remove(StatusFlags::CARRY);
-        }
+        let value = self.peek_u8(addr);
+
+        let borrow = !self.status.contains(StatusFlags::CARRY);
+        // TODO: Use `borrowing_sub` when stable.
+        let (_, overflow) = (self.register_a as i8).sub_borrowing(value as i8, borrow);
+        let (result, borrow) = self.register_a.sub_borrowing(value, borrow);
+
         self.register_a = result;
+        self.status.set(StatusFlags::CARRY, !borrow);
+        self.status.set(StatusFlags::OVERFLOW, overflow);
         self.update_zero_and_negative_flags(self.register_a);
     }
 
     fn adc(&mut self, mode: &AddressingMode) {
-        use crate::carrying::CarryingExt;
-
         let addr = self.operand_address(mode);
         let value = self.peek_u8(addr);
 
         let carry = self.status.contains(StatusFlags::CARRY);
         // TODO: Use `carrying_add` when stable.
-        let (result, carry) = self.register_a.add_carrying(value, carry);
         let (_, overflow) = (self.register_a as i8).add_carrying(value as i8, carry);
+        let (result, carry) = self.register_a.add_carrying(value, carry);
 
         self.register_a = result;
         self.status.set(StatusFlags::CARRY, carry);
@@ -746,12 +869,12 @@ impl CPU {
     }
 
     fn rts(&mut self, _mode: &AddressingMode) {
-        self.program_counter = self.stack_pop_u16()
+        self.program_counter = self.stack_pop_u16() + 1;
     }
 
     fn jsr(&mut self, mode: &AddressingMode) {
         let addr = self.operand_address(mode);
-        self.stack_push_u16(self.program_counter);
+        self.stack_push_u16(self.program_counter - 1);
         self.program_counter = addr;
     }
 
@@ -763,6 +886,11 @@ impl CPU {
     fn stx(&mut self, mode: &AddressingMode) {
         let addr = self.operand_address(mode);
         self.write_u8(addr, self.register_x);
+    }
+
+    fn sty(&mut self, mode: &AddressingMode) {
+        let addr = self.operand_address(mode);
+        self.write_u8(addr, self.register_y);
     }
 
     fn ldy(&mut self, mode: &AddressingMode) {
@@ -796,10 +924,10 @@ impl CPU {
 
     /// PuLl Processor status
     fn plp(&mut self, _mode: &AddressingMode) {
-        let mut flags = StatusFlags::from_bits_truncate(self.stack_pop_u8());
-        flags -= StatusFlags::BREAK_COMMAND;
-        flags |= StatusFlags::UNUSED;
-        self.status = flags;
+        let mut status = StatusFlags::from_bits_truncate(self.stack_pop_u8());
+        status -= StatusFlags::BREAK_COMMAND;
+        status |= StatusFlags::UNUSED;
+        self.status = status;
     }
 
     /// PusH Processor status
@@ -817,6 +945,16 @@ impl CPU {
     fn tsx(&mut self, _mode: &AddressingMode) {
         self.register_x = self.stack_pointer;
         self.update_zero_and_negative_flags(self.register_x);
+    }
+
+    fn tay(&mut self, _mode: &AddressingMode) {
+        self.register_y = self.register_a;
+        self.update_zero_and_negative_flags(self.register_y);
+    }
+
+    fn tya(&mut self, _mode: &AddressingMode) {
+        self.register_a = self.register_y;
+        self.update_zero_and_negative_flags(self.register_a);
     }
 }
 
