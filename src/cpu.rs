@@ -198,6 +198,98 @@ lazy_static! {
             (0x76, Instruction::new(CPU::ror, "ROR", 6, AddressingMode::ZeroPageX)),
             (0x6e, Instruction::new(CPU::ror, "ROR", 6, AddressingMode::Absolute)),
             (0x7e, Instruction::new(CPU::ror, "ROR", 7, AddressingMode::AbsoluteX)),
+
+            (0x1a, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::None)),
+            (0x3a, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::None)),
+            (0x5a, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::None)),
+            (0x7a, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::None)),
+            (0xda, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::None)),
+            (0xfa, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::None)),
+
+            (0x04, Instruction::new(CPU::nop, "*NOP", 3, AddressingMode::ZeroPage)),
+            (0x14, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::ZeroPageX)),
+            (0x34, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::ZeroPageX)),
+            (0x44, Instruction::new(CPU::nop, "*NOP", 3, AddressingMode::ZeroPage)),
+            (0x54, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::ZeroPageX)),
+            (0x64, Instruction::new(CPU::nop, "*NOP", 3, AddressingMode::ZeroPage)),
+            (0x74, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::ZeroPageX)),
+            (0x80, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::Immediate)),
+            (0x82, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::Immediate)),
+            (0x89, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::Immediate)),
+            (0xc2, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::Immediate)),
+            (0xd4, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::ZeroPageX)),
+            (0xe2, Instruction::new(CPU::nop, "*NOP", 2, AddressingMode::Immediate)),
+            (0xf4, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::ZeroPageX)),
+
+            (0x0c, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::Absolute)),
+            (0x1c, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::AbsoluteX)),
+            (0x3c, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::AbsoluteX)),
+            (0x5c, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::AbsoluteX)),
+            (0x7c, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::AbsoluteX)),
+            (0xdc, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::AbsoluteX)),
+            (0xfc, Instruction::new(CPU::nop, "*NOP", 4, AddressingMode::AbsoluteX)),
+
+            (0xa7, Instruction::new(CPU::lax, "*LAX", 3, AddressingMode::ZeroPage)),
+            (0xb7, Instruction::new(CPU::lax, "*LAX", 4, AddressingMode::ZeroPageY)),
+            (0xaf, Instruction::new(CPU::lax, "*LAX", 4, AddressingMode::Absolute)),
+            (0xbf, Instruction::new(CPU::lax, "*LAX", 4, AddressingMode::AbsoluteY)),
+            (0xa3, Instruction::new(CPU::lax, "*LAX", 6, AddressingMode::IndirectX)),
+            (0xb3, Instruction::new(CPU::lax, "*LAX", 5, AddressingMode::IndirectY)),
+
+            (0x87, Instruction::new(CPU::sax, "*SAX", 3, AddressingMode::ZeroPage)),
+            (0x97, Instruction::new(CPU::sax, "*SAX", 4, AddressingMode::ZeroPageY)),
+            (0x83, Instruction::new(CPU::sax, "*SAX", 6, AddressingMode::IndirectX)),
+            (0x8f, Instruction::new(CPU::sax, "*SAX", 4, AddressingMode::Absolute)),
+
+            (0xeb, Instruction::new(CPU::sbc, "*SBC", 2, AddressingMode::Immediate)),
+
+            (0xc7, Instruction::new(CPU::dcp, "*DCP", 5, AddressingMode::ZeroPage)),
+            (0xd7, Instruction::new(CPU::dcp, "*DCP", 6, AddressingMode::ZeroPageX)),
+            (0xcf, Instruction::new(CPU::dcp, "*DCP", 6, AddressingMode::Absolute)),
+            (0xdf, Instruction::new(CPU::dcp, "*DCP", 7, AddressingMode::AbsoluteX)),
+            (0xdb, Instruction::new(CPU::dcp, "*DCP", 7, AddressingMode::AbsoluteY)),
+            (0xc3, Instruction::new(CPU::dcp, "*DCP", 8, AddressingMode::IndirectX)),
+            (0xd3, Instruction::new(CPU::dcp, "*DCP", 8, AddressingMode::IndirectY)),
+
+            (0xe7, Instruction::new(CPU::isb, "*ISB", 5, AddressingMode::ZeroPage)),
+            (0xf7, Instruction::new(CPU::isb, "*ISB", 6, AddressingMode::ZeroPageX)),
+            (0xef, Instruction::new(CPU::isb, "*ISB", 6, AddressingMode::Absolute)),
+            (0xff, Instruction::new(CPU::isb, "*ISB", 7, AddressingMode::AbsoluteX)),
+            (0xfb, Instruction::new(CPU::isb, "*ISB", 7, AddressingMode::AbsoluteY)),
+            (0xe3, Instruction::new(CPU::isb, "*ISB", 8, AddressingMode::IndirectX)),
+            (0xf3, Instruction::new(CPU::isb, "*ISB", 8, AddressingMode::IndirectY)),
+
+            (0x07, Instruction::new(CPU::slo, "*SLO", 5, AddressingMode::ZeroPage)),
+            (0x17, Instruction::new(CPU::slo, "*SLO", 6, AddressingMode::ZeroPageX)),
+            (0x0f, Instruction::new(CPU::slo, "*SLO", 6, AddressingMode::Absolute)),
+            (0x1f, Instruction::new(CPU::slo, "*SLO", 7, AddressingMode::AbsoluteX)),
+            (0x1b, Instruction::new(CPU::slo, "*SLO", 7, AddressingMode::AbsoluteY)),
+            (0x03, Instruction::new(CPU::slo, "*SLO", 8, AddressingMode::IndirectX)),
+            (0x13, Instruction::new(CPU::slo, "*SLO", 8, AddressingMode::IndirectY)),
+
+            (0x27, Instruction::new(CPU::rla, "*RLA", 5, AddressingMode::ZeroPage)),
+            (0x37, Instruction::new(CPU::rla, "*RLA", 6, AddressingMode::ZeroPageX)),
+            (0x2f, Instruction::new(CPU::rla, "*RLA", 6, AddressingMode::Absolute)),
+            (0x3f, Instruction::new(CPU::rla, "*RLA", 7, AddressingMode::AbsoluteX)),
+            (0x3b, Instruction::new(CPU::rla, "*RLA", 7, AddressingMode::AbsoluteY)),
+            (0x23, Instruction::new(CPU::rla, "*RLA", 8, AddressingMode::IndirectX)),
+            (0x33, Instruction::new(CPU::rla, "*RLA", 8, AddressingMode::IndirectY)),
+
+            (0x47, Instruction::new(CPU::sre, "*SRE", 5, AddressingMode::ZeroPage)),
+            (0x57, Instruction::new(CPU::sre, "*SRE", 6, AddressingMode::ZeroPageX)),
+            (0x4f, Instruction::new(CPU::sre, "*SRE", 6, AddressingMode::Absolute)),
+            (0x5f, Instruction::new(CPU::sre, "*SRE", 7, AddressingMode::AbsoluteX)),
+            (0x5b, Instruction::new(CPU::sre, "*SRE", 7, AddressingMode::AbsoluteY)),
+            (0x43, Instruction::new(CPU::sre, "*SRE", 8, AddressingMode::IndirectX)),
+            (0x53, Instruction::new(CPU::sre, "*SRE", 8, AddressingMode::IndirectY)),
+
+            (0x67, Instruction::new(CPU::rra, "*RRA", 5, AddressingMode::ZeroPage)),
+            (0x77, Instruction::new(CPU::rra, "*RRA", 6, AddressingMode::ZeroPageX)),
+            (0x6f, Instruction::new(CPU::rra, "*RRA", 6, AddressingMode::Absolute)),
+            (0x7f, Instruction::new(CPU::rra, "*RRA", 7, AddressingMode::AbsoluteX)),
+            (0x7b, Instruction::new(CPU::rra, "*RRA", 7, AddressingMode::AbsoluteY)),
+            (0x63, Instruction::new(CPU::rra, "*RRA", 8, AddressingMode::IndirectX)),
+            (0x73, Instruction::new(CPU::rra, "*RRA", 8, AddressingMode::IndirectY)),
         ])
     };
 }
@@ -268,7 +360,7 @@ pub struct CPU {
     bus: Bus,
 }
 
-#[cfg(test)]
+// TODO: Compile only for tests?
 impl fmt::Debug for CPU {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         use std::fmt::Write;
@@ -395,16 +487,29 @@ impl fmt::Debug for CPU {
             }
         };
 
-        write!(
-            f,
-            "{:04X}  {bytes:<8}  {instruction:<30}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
-            self.program_counter,
-            self.register_a,
-            self.register_x,
-            self.register_y,
-            self.status.bits(),
-            self.stack_pointer,
-        )
+        if !name.starts_with("*") {
+            write!(
+                f,
+                "{:04X}  {bytes:<8}  {instruction:<30}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+                self.program_counter,
+                self.register_a,
+                self.register_x,
+                self.register_y,
+                self.status.bits(),
+                self.stack_pointer,
+            )
+        } else {
+            write!(
+                f,
+                "{:04X}  {bytes:<8} {instruction:<31}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+                self.program_counter,
+                self.register_a,
+                self.register_x,
+                self.register_y,
+                self.status.bits(),
+                self.stack_pointer,
+            )
+        }
     }
 }
 
@@ -971,6 +1076,48 @@ impl CPU {
     fn tya(&mut self, _addr: Option<u16>) {
         self.register_a = self.register_y;
         self.update_zero_and_negative_flags(self.register_a);
+    }
+
+    fn lax(&mut self, addr: Option<u16>) {
+        self.lda(addr);
+        self.tax(addr);
+    }
+
+    fn sax(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let result = self.register_a & self.register_x;
+            self.write_u8(addr, result);
+        }
+    }
+
+    fn dcp(&mut self, addr: Option<u16>) {
+        self.dec(addr);
+        self.cmp(addr);
+    }
+
+    fn isb(&mut self, addr: Option<u16>) {
+        self.inc(addr);
+        self.sbc(addr);
+    }
+
+    fn slo(&mut self, addr: Option<u16>) {
+        self.asl(addr);
+        self.ora(addr);
+    }
+
+    fn rla(&mut self, addr: Option<u16>) {
+        self.rol(addr);
+        self.and(addr);
+    }
+
+    fn sre(&mut self, addr: Option<u16>) {
+        self.lsr(addr);
+        self.eor(addr);
+    }
+
+    fn rra(&mut self, addr: Option<u16>) {
+        self.ror(addr);
+        self.adc(addr);
     }
 }
 
