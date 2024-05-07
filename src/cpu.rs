@@ -10,7 +10,7 @@ use std::ops::Shl;
 
 const STACK_BASE: u16 = 0x100;
 
-type OpcodeMethod = fn(&mut CPU, &AddressingMode);
+type OpcodeMethod = fn(&mut CPU, Option<u16>);
 
 lazy_static! {
     // References:
@@ -499,8 +499,11 @@ impl CPU {
             .set(StatusFlags::NEGATIVE, result & 0b1000_0000 != 0);
     }
 
-    fn operand_address(&mut self, mode: &AddressingMode) -> u16 {
-        match mode {
+    fn operand_address(&mut self, mode: &AddressingMode) -> Option<u16> {
+        let addr = match mode {
+            AddressingMode::None | AddressingMode::Relative | AddressingMode::Accumulator => {
+                return None;
+            }
             AddressingMode::Immediate => {
                 let addr = self.program_counter;
                 self.program_counter += 1;
@@ -529,10 +532,9 @@ impl CPU {
                 self.peek_u16_zero_page(base.into())
                     .wrapping_add(self.register_y.into())
             }
-            AddressingMode::None | AddressingMode::Relative | AddressingMode::Accumulator => {
-                panic!("AddressingMode::{:?} is not supported", mode)
-            }
-        }
+        };
+
+        Some(addr)
     }
 
     #[cfg(test)]
@@ -558,16 +560,17 @@ impl CPU {
                 None => todo!("{}", format!("opcode {:#02x?}", opcode)),
             };
 
-            (opcode.method)(self, &opcode.addressing_mode);
+            let addr = self.operand_address(&opcode.addressing_mode);
+            (opcode.method)(self, addr);
         }
     }
 
-    fn brk(&mut self, _mode: &AddressingMode) {
+    fn brk(&mut self, _addr: Option<u16>) {
         dbg!("brk", self.program_counter);
         self.status.insert(StatusFlags::BREAK_COMMAND);
     }
 
-    fn rti(&mut self, _mode: &AddressingMode) {
+    fn rti(&mut self, _addr: Option<u16>) {
         let mut status = StatusFlags::from_bits_truncate(self.stack_pop_u8());
         // TODO: Actually implement this.
         let _ = self.stack_pop_u16();
@@ -576,58 +579,48 @@ impl CPU {
         self.status = status;
     }
 
-    fn asl(&mut self, mode: &AddressingMode) {
-        let result = if mode == &AddressingMode::Accumulator {
-            self.status
-                .set(StatusFlags::CARRY, self.register_a & 0b1000_0000 != 0);
-            self.register_a <<= 1;
-            self.register_a
-        } else {
-            let addr = self.operand_address(mode);
+    fn asl(&mut self, addr: Option<u16>) {
+        let result = if let Some(addr) = addr {
             let value = self.peek_u8(addr);
             self.status
                 .set(StatusFlags::CARRY, value & 0b1000_0000 != 0);
             let result = value << 1;
             self.write_u8(addr, result);
             result
-        };
-
-        self.update_zero_and_negative_flags(result);
-    }
-
-    fn rol(&mut self, mode: &AddressingMode) {
-        let result = if mode == &AddressingMode::Accumulator {
+        } else {
             self.status
                 .set(StatusFlags::CARRY, self.register_a & 0b1000_0000 != 0);
-
             self.register_a <<= 1;
-            self.register_a |= self.status.contains(StatusFlags::CARRY) as u8;
             self.register_a
-        } else {
-            let addr = self.operand_address(mode);
-            let mut value = self.peek_u8(addr);
-
-            self.status
-                .set(StatusFlags::CARRY, value & 0b1000_0000 != 0);
-
-            value <<= 1;
-            value |= self.status.contains(StatusFlags::CARRY) as u8;
-            self.write_u8(addr, value);
-            value
         };
 
         self.update_zero_and_negative_flags(result);
     }
 
-    fn ror(&mut self, mode: &AddressingMode) {
-        let result = if mode == &AddressingMode::Accumulator {
-            let old_bit = self.register_a & 0b1;
-            self.register_a >>= 1;
-            self.register_a |= (self.status.contains(StatusFlags::CARRY) as u8).shl(7);
+    fn rol(&mut self, addr: Option<u16>) {
+        let result = if let Some(addr) = addr {
+            let mut value = self.peek_u8(addr);
+
+            let old_bit = value & 0b1000_0000;
+            value <<= 1;
+            value |= self.status.contains(StatusFlags::CARRY) as u8;
+            self.status.set(StatusFlags::CARRY, old_bit != 0);
+
+            self.write_u8(addr, value);
+            value
+        } else {
+            let old_bit = self.register_a & 0b1000_0000;
+            self.register_a <<= 1;
+            self.register_a |= self.status.contains(StatusFlags::CARRY) as u8;
             self.status.set(StatusFlags::CARRY, old_bit != 0);
             self.register_a
-        } else {
-            let addr = self.operand_address(mode);
+        };
+
+        self.update_zero_and_negative_flags(result);
+    }
+
+    fn ror(&mut self, addr: Option<u16>) {
+        let result = if let Some(addr) = addr {
             let mut value = self.peek_u8(addr);
 
             let old_bit = value & 0b1;
@@ -637,83 +630,91 @@ impl CPU {
 
             self.write_u8(addr, value);
             value
+        } else {
+            let old_bit = self.register_a & 0b1;
+            self.register_a >>= 1;
+            self.register_a |= (self.status.contains(StatusFlags::CARRY) as u8).shl(7);
+            self.status.set(StatusFlags::CARRY, old_bit != 0);
+            self.register_a
         };
 
         self.update_zero_and_negative_flags(result);
     }
 
-    fn nop(&mut self, _mode: &AddressingMode) {}
+    fn nop(&mut self, _addr: Option<u16>) {}
 
-    fn clv(&mut self, _mode: &AddressingMode) {
+    fn clv(&mut self, _addr: Option<u16>) {
         self.status.remove(StatusFlags::OVERFLOW);
     }
 
-    fn cli(&mut self, _mode: &AddressingMode) {
+    fn cli(&mut self, _addr: Option<u16>) {
         self.status.remove(StatusFlags::INTERRUPT_DISABLE);
     }
 
-    fn sei(&mut self, _mode: &AddressingMode) {
+    fn sei(&mut self, _addr: Option<u16>) {
         self.status.insert(StatusFlags::INTERRUPT_DISABLE);
     }
 
-    fn cld(&mut self, _mode: &AddressingMode) {
+    fn cld(&mut self, _addr: Option<u16>) {
         self.status.remove(StatusFlags::DECIMAL_MODE);
     }
 
-    fn sed(&mut self, _mode: &AddressingMode) {
+    fn sed(&mut self, _addr: Option<u16>) {
         self.status.insert(StatusFlags::DECIMAL_MODE);
     }
 
-    fn clc(&mut self, _mode: &AddressingMode) {
+    fn clc(&mut self, _addr: Option<u16>) {
         self.status.remove(StatusFlags::CARRY);
     }
 
-    fn sec(&mut self, _mode: &AddressingMode) {
+    fn sec(&mut self, _addr: Option<u16>) {
         self.status.insert(StatusFlags::CARRY);
     }
 
-    fn iny(&mut self, _mode: &AddressingMode) {
+    fn iny(&mut self, _addr: Option<u16>) {
         self.register_y = self.register_y.wrapping_add(1);
         self.update_zero_and_negative_flags(self.register_y);
     }
 
-    fn inx(&mut self, _mode: &AddressingMode) {
+    fn inx(&mut self, _addr: Option<u16>) {
         self.register_x = self.register_x.wrapping_add(1);
         self.update_zero_and_negative_flags(self.register_x);
     }
 
-    fn inc(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        let value = self.peek_u8(addr).wrapping_add(1);
-        self.write_u8(addr, value);
-        self.update_zero_and_negative_flags(value);
+    fn inc(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let value = self.peek_u8(addr).wrapping_add(1);
+            self.write_u8(addr, value);
+            self.update_zero_and_negative_flags(value);
+        }
     }
 
-    fn txa(&mut self, _mode: &AddressingMode) {
+    fn txa(&mut self, _addr: Option<u16>) {
         self.register_a = self.register_x;
         self.update_zero_and_negative_flags(self.register_a);
     }
 
-    fn tax(&mut self, _mode: &AddressingMode) {
+    fn tax(&mut self, _addr: Option<u16>) {
         self.register_x = self.register_a;
         self.update_zero_and_negative_flags(self.register_x);
     }
 
-    fn dey(&mut self, _mode: &AddressingMode) {
+    fn dey(&mut self, _addr: Option<u16>) {
         self.register_y = self.register_y.wrapping_sub(1);
         self.update_zero_and_negative_flags(self.register_y);
     }
 
-    fn dex(&mut self, _mode: &AddressingMode) {
+    fn dex(&mut self, _addr: Option<u16>) {
         self.register_x = self.register_x.wrapping_sub(1);
         self.update_zero_and_negative_flags(self.register_x);
     }
 
-    fn dec(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        let value = self.peek_u8(addr).wrapping_sub(1);
-        self.write_u8(addr, value);
-        self.update_zero_and_negative_flags(value);
+    fn dec(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let value = self.peek_u8(addr).wrapping_sub(1);
+            self.write_u8(addr, value);
+            self.update_zero_and_negative_flags(value);
+        }
     }
 
     fn branch(&mut self, condition: bool) {
@@ -723,207 +724,222 @@ impl CPU {
         }
     }
 
-    fn bvs(&mut self, _mode: &AddressingMode) {
+    fn bvs(&mut self, _addr: Option<u16>) {
         self.branch(self.status.contains(StatusFlags::OVERFLOW));
     }
 
-    fn bvc(&mut self, _mode: &AddressingMode) {
+    fn bvc(&mut self, _addr: Option<u16>) {
         self.branch(!self.status.contains(StatusFlags::OVERFLOW));
     }
 
-    fn bcc(&mut self, _mode: &AddressingMode) {
+    fn bcc(&mut self, _addr: Option<u16>) {
         self.branch(!self.status.contains(StatusFlags::CARRY));
     }
 
-    fn bcs(&mut self, _mode: &AddressingMode) {
+    fn bcs(&mut self, _addr: Option<u16>) {
         self.branch(self.status.contains(StatusFlags::CARRY));
     }
 
-    fn bmi(&mut self, _mode: &AddressingMode) {
+    fn bmi(&mut self, _addr: Option<u16>) {
         self.branch(self.status.contains(StatusFlags::NEGATIVE));
     }
 
-    fn bpl(&mut self, _mode: &AddressingMode) {
+    fn bpl(&mut self, _addr: Option<u16>) {
         self.branch(!self.status.contains(StatusFlags::NEGATIVE));
     }
 
-    fn bne(&mut self, _mode: &AddressingMode) {
+    fn bne(&mut self, _addr: Option<u16>) {
         self.branch(!self.status.contains(StatusFlags::ZERO));
     }
 
-    fn beq(&mut self, _mode: &AddressingMode) {
+    fn beq(&mut self, _addr: Option<u16>) {
         self.branch(self.status.contains(StatusFlags::ZERO));
     }
 
-    fn jmp(&mut self, mode: &AddressingMode) {
-        self.program_counter = self.operand_address(mode);
+    fn jmp(&mut self, addr: Option<u16>) {
+        self.program_counter = addr.unwrap();
     }
 
     /// test BITs
-    fn bit(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        let value = self.peek_u8(addr);
-        self.status
-            .set(StatusFlags::ZERO, value & self.register_a == 0);
-        self.status
-            .set(StatusFlags::OVERFLOW, value & 0b0100_0000 != 0);
-        self.status
-            .set(StatusFlags::NEGATIVE, value & 0b1000_0000 != 0);
-    }
-
-    fn cpy(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        let value = self.peek_u8(addr);
-        let result = self.register_y.wrapping_sub(value);
-
-        self.status
-            .set(StatusFlags::CARRY, self.register_y >= value);
-        self.update_zero_and_negative_flags(result);
-    }
-
-    fn cpx(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        let value = self.peek_u8(addr);
-        let result = self.register_x.wrapping_sub(value);
-
-        self.status
-            .set(StatusFlags::CARRY, self.register_x >= value);
-        self.update_zero_and_negative_flags(result);
-    }
-
-    fn cmp(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        let value = self.peek_u8(addr);
-        let result = self.register_a.wrapping_sub(value);
-
-        self.status
-            .set(StatusFlags::CARRY, self.register_a >= value);
-        self.update_zero_and_negative_flags(result);
-    }
-
-    fn lsr(&mut self, mode: &AddressingMode) {
-        let result = if mode == &AddressingMode::Accumulator {
+    fn bit(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let value = self.peek_u8(addr);
             self.status
-                .set(StatusFlags::CARRY, self.register_a & 0b0000_0001 != 0);
-            self.register_a = self.register_a.wrapping_shr(1);
-            self.register_a
-        } else {
-            let addr = self.operand_address(mode);
+                .set(StatusFlags::ZERO, value & self.register_a == 0);
+            self.status
+                .set(StatusFlags::OVERFLOW, value & 0b0100_0000 != 0);
+            self.status
+                .set(StatusFlags::NEGATIVE, value & 0b1000_0000 != 0);
+        }
+    }
+
+    fn cpy(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let value = self.peek_u8(addr);
+            let result = self.register_y.wrapping_sub(value);
+
+            self.status
+                .set(StatusFlags::CARRY, self.register_y >= value);
+            self.update_zero_and_negative_flags(result);
+        }
+    }
+
+    fn cpx(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let value = self.peek_u8(addr);
+            let result = self.register_x.wrapping_sub(value);
+
+            self.status
+                .set(StatusFlags::CARRY, self.register_x >= value);
+            self.update_zero_and_negative_flags(result);
+        }
+    }
+
+    fn cmp(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let value = self.peek_u8(addr);
+            let result = self.register_a.wrapping_sub(value);
+
+            self.status
+                .set(StatusFlags::CARRY, self.register_a >= value);
+            self.update_zero_and_negative_flags(result);
+        }
+    }
+
+    fn lsr(&mut self, addr: Option<u16>) {
+        let result = if let Some(addr) = addr {
             let value = self.bus.mem_read(addr);
             self.status
                 .set(StatusFlags::CARRY, value & 0b0000_0001 != 0);
             let result = value.wrapping_shr(1);
             self.write_u8(addr, result);
             result
+        } else {
+            self.status
+                .set(StatusFlags::CARRY, self.register_a & 0b0000_0001 != 0);
+            self.register_a = self.register_a.wrapping_shr(1);
+            self.register_a
         };
 
         self.update_zero_and_negative_flags(result);
     }
 
-    fn sbc(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        let value = self.peek_u8(addr);
+    fn sbc(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let value = self.peek_u8(addr);
 
-        let borrow = !self.status.contains(StatusFlags::CARRY);
-        // TODO: Use `borrowing_sub` when stable.
-        let (_, overflow) = (self.register_a as i8).sub_borrowing(value as i8, borrow);
-        let (result, borrow) = self.register_a.sub_borrowing(value, borrow);
+            let borrow = !self.status.contains(StatusFlags::CARRY);
+            // TODO: Use `borrowing_sub` when stable.
+            let (_, overflow) = (self.register_a as i8).sub_borrowing(value as i8, borrow);
+            let (result, borrow) = self.register_a.sub_borrowing(value, borrow);
 
-        self.register_a = result;
-        self.status.set(StatusFlags::CARRY, !borrow);
-        self.status.set(StatusFlags::OVERFLOW, overflow);
-        self.update_zero_and_negative_flags(self.register_a);
+            self.register_a = result;
+            self.status.set(StatusFlags::CARRY, !borrow);
+            self.status.set(StatusFlags::OVERFLOW, overflow);
+            self.update_zero_and_negative_flags(self.register_a);
+        }
     }
 
-    fn adc(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        let value = self.peek_u8(addr);
+    fn adc(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            let value = self.peek_u8(addr);
 
-        let carry = self.status.contains(StatusFlags::CARRY);
-        // TODO: Use `carrying_add` when stable.
-        let (_, overflow) = (self.register_a as i8).add_carrying(value as i8, carry);
-        let (result, carry) = self.register_a.add_carrying(value, carry);
+            let carry = self.status.contains(StatusFlags::CARRY);
+            // TODO: Use `carrying_add` when stable.
+            let (_, overflow) = (self.register_a as i8).add_carrying(value as i8, carry);
+            let (result, carry) = self.register_a.add_carrying(value, carry);
 
-        self.register_a = result;
-        self.status.set(StatusFlags::CARRY, carry);
-        self.status.set(StatusFlags::OVERFLOW, overflow);
-        self.update_zero_and_negative_flags(self.register_a);
+            self.register_a = result;
+            self.status.set(StatusFlags::CARRY, carry);
+            self.status.set(StatusFlags::OVERFLOW, overflow);
+            self.update_zero_and_negative_flags(self.register_a);
+        }
     }
 
-    fn eor(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.register_a = self.register_a ^ self.peek_u8(addr);
-        self.update_zero_and_negative_flags(self.register_a);
+    fn eor(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.register_a = self.register_a ^ self.peek_u8(addr);
+            self.update_zero_and_negative_flags(self.register_a);
+        }
     }
 
-    fn ora(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.register_a = self.register_a | self.peek_u8(addr);
-        self.update_zero_and_negative_flags(self.register_a);
+    fn ora(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.register_a = self.register_a | self.peek_u8(addr);
+            self.update_zero_and_negative_flags(self.register_a);
+        }
     }
 
-    fn and(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.register_a = self.register_a & self.peek_u8(addr);
-        self.update_zero_and_negative_flags(self.register_a);
+    fn and(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.register_a = self.register_a & self.peek_u8(addr);
+            self.update_zero_and_negative_flags(self.register_a);
+        }
     }
 
-    fn rts(&mut self, _mode: &AddressingMode) {
+    fn rts(&mut self, _addr: Option<u16>) {
         self.program_counter = self.stack_pop_u16() + 1;
     }
 
-    fn jsr(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.stack_push_u16(self.program_counter - 1);
-        self.program_counter = addr;
+    fn jsr(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.stack_push_u16(self.program_counter - 1);
+            self.program_counter = addr;
+        }
     }
 
-    fn sta(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.write_u8(addr, self.register_a);
+    fn sta(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.write_u8(addr, self.register_a);
+        }
     }
 
-    fn stx(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.write_u8(addr, self.register_x);
+    fn stx(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.write_u8(addr, self.register_x);
+        }
     }
 
-    fn sty(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.write_u8(addr, self.register_y);
+    fn sty(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.write_u8(addr, self.register_y);
+        }
     }
 
-    fn ldy(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.register_y = self.peek_u8(addr);
-        self.update_zero_and_negative_flags(self.register_y);
+    fn ldy(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.register_y = self.peek_u8(addr);
+            self.update_zero_and_negative_flags(self.register_y);
+        }
     }
 
-    fn ldx(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.register_x = self.peek_u8(addr);
-        self.update_zero_and_negative_flags(self.register_x);
+    fn ldx(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.register_x = self.peek_u8(addr);
+            self.update_zero_and_negative_flags(self.register_x);
+        }
     }
 
-    fn lda(&mut self, mode: &AddressingMode) {
-        let addr = self.operand_address(mode);
-        self.register_a = self.peek_u8(addr);
-        self.update_zero_and_negative_flags(self.register_a);
+    fn lda(&mut self, addr: Option<u16>) {
+        if let Some(addr) = addr {
+            self.register_a = self.peek_u8(addr);
+            self.update_zero_and_negative_flags(self.register_a);
+        }
     }
 
     /// PuLl Accumulator
-    fn pla(&mut self, _mode: &AddressingMode) {
+    fn pla(&mut self, _addr: Option<u16>) {
         self.register_a = self.stack_pop_u8();
         self.update_zero_and_negative_flags(self.register_a);
     }
 
     /// PusH Accumulator
-    fn pha(&mut self, _mode: &AddressingMode) {
+    fn pha(&mut self, _addr: Option<u16>) {
         self.stack_push_u8(self.register_a);
     }
 
     /// PuLl Processor status
-    fn plp(&mut self, _mode: &AddressingMode) {
+    fn plp(&mut self, _addr: Option<u16>) {
         let mut status = StatusFlags::from_bits_truncate(self.stack_pop_u8());
         status -= StatusFlags::BREAK_COMMAND;
         status |= StatusFlags::UNUSED;
@@ -931,28 +947,28 @@ impl CPU {
     }
 
     /// PusH Processor status
-    fn php(&mut self, _mode: &AddressingMode) {
+    fn php(&mut self, _addr: Option<u16>) {
         let result = self.status.bits() | StatusFlags::BREAK_COMMAND.bits();
         self.stack_push_u8(result);
     }
 
     /// Transfer X to Stack ptr
-    fn txs(&mut self, _mode: &AddressingMode) {
+    fn txs(&mut self, _addr: Option<u16>) {
         self.stack_pointer = self.register_x;
     }
 
     /// Transfer Stack ptr to X
-    fn tsx(&mut self, _mode: &AddressingMode) {
+    fn tsx(&mut self, _addr: Option<u16>) {
         self.register_x = self.stack_pointer;
         self.update_zero_and_negative_flags(self.register_x);
     }
 
-    fn tay(&mut self, _mode: &AddressingMode) {
+    fn tay(&mut self, _addr: Option<u16>) {
         self.register_y = self.register_a;
         self.update_zero_and_negative_flags(self.register_y);
     }
 
-    fn tya(&mut self, _mode: &AddressingMode) {
+    fn tya(&mut self, _addr: Option<u16>) {
         self.register_a = self.register_y;
         self.update_zero_and_negative_flags(self.register_a);
     }
