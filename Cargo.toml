@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitflags = { version = "2.5.0", features = ["serde"] }
-lazy_static = "1.4.0"
-sdl2 = { version = "0.36.0", features = ["bundled", "static-link"] }
+bitflags = { version = "2.6.0", features = ["serde"] }
+lazy_static = "1.5.0"
+sdl2 = { version = "0.37.0", features = ["bundled", "static-link"] }
 rand = "0.8.5"
-serde = { version = "1.0.200", features = ["derive"] }
+serde = { version = "1.0.204", features = ["derive"] }
 bincode = "1.3.3"
 
 [dev-dependencies]

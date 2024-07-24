@@ -4,8 +4,6 @@ use bitflags::bitflags;
 use lazy_static::lazy_static;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::fmt;
-use std::fmt::Formatter;
 use std::ops::Shl;
 
 const STACK_BASE: u16 = 0x100;
@@ -309,10 +307,10 @@ bitflags! {
     }
 }
 
+#[allow(dead_code)]
 pub struct Instruction {
     method: OpcodeMethod,
     name: &'static str,
-    #[allow(dead_code)]
     cycles: u8,
     addressing_mode: AddressingMode,
 }
@@ -360,9 +358,21 @@ pub struct CPU {
     bus: Bus,
 }
 
-// TODO: Compile only for tests?
-impl fmt::Debug for CPU {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl CPU {
+    pub fn new(bus: Bus) -> Self {
+        Self {
+            register_a: 0,
+            register_x: 0,
+            register_y: 0,
+            status: StatusFlags::from_bits_truncate(0b0010_0000),
+            stack_pointer: 0xff,
+            program_counter: 0,
+            bus,
+        }
+    }
+
+    #[cfg(test)]
+    fn fmt(&mut self) -> String {
         use std::fmt::Write;
 
         let opcode = self.peek_u8(self.program_counter);
@@ -445,7 +455,7 @@ impl fmt::Debug for CPU {
                 let bytes = format!("{opcode} {lo:02X} {hi:02X}");
                 let addr = u16::from_le_bytes([lo, hi]);
                 let mut instruction = format!("{name} ${addr:04X}");
-                if !name.starts_with("J") {
+                if !name.starts_with("J") && !(0x2000..0x3fff).contains(&addr) {
                     let _ = write!(instruction, " = {:02X}", self.peek_u8(addr));
                 }
                 (bytes, instruction)
@@ -487,42 +497,29 @@ impl fmt::Debug for CPU {
             }
         };
 
+        // TODO: De-duplicate.
         if !name.starts_with("*") {
-            write!(
-                f,
-                "{:04X}  {bytes:<8}  {instruction:<30}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+            format!(
+                "{:04X}  {bytes:<8}  {instruction:<30}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:  0, 21 CYC:{}",
                 self.program_counter,
                 self.register_a,
                 self.register_x,
                 self.register_y,
                 self.status.bits(),
                 self.stack_pointer,
+                self.bus.cycles,
             )
         } else {
-            write!(
-                f,
-                "{:04X}  {bytes:<8} {instruction:<31}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+            format!(
+                "{:04X}  {bytes:<8} {instruction:<31}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:  0, 21 CYC:{}",
                 self.program_counter,
                 self.register_a,
                 self.register_x,
                 self.register_y,
                 self.status.bits(),
                 self.stack_pointer,
+                self.bus.cycles,
             )
-        }
-    }
-}
-
-impl CPU {
-    pub fn new(bus: Bus) -> Self {
-        Self {
-            register_a: 0,
-            register_x: 0,
-            register_y: 0,
-            status: StatusFlags::from_bits_truncate(0b0010_0100),
-            stack_pointer: 0xfd,
-            program_counter: 0,
-            bus,
         }
     }
 
@@ -530,12 +527,12 @@ impl CPU {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
-        self.status = StatusFlags::from_bits_truncate(0b0010_0100);
+        self.status = StatusFlags::from_bits_truncate(0b0010_0000);
         self.program_counter = self.peek_u16(0xfffc);
     }
 
-    pub fn peek_u8(&self, addr: u16) -> u8 {
-        self.bus.mem_read(addr)
+    pub fn peek_u8(&mut self, addr: u16) -> u8 {
+        self.bus.cpu_read(addr)
     }
 
     pub fn read_u8(&mut self) -> u8 {
@@ -552,11 +549,11 @@ impl CPU {
         u16::from_le_bytes([self.read_u8(), self.read_u8()])
     }
 
-    fn peek_u16(&self, addr: u16) -> u16 {
+    fn peek_u16(&mut self, addr: u16) -> u16 {
         u16::from_le_bytes([self.peek_u8(addr), self.peek_u8(addr.wrapping_add(1))])
     }
 
-    fn peek_u16_zero_page(&self, addr: u8) -> u16 {
+    fn peek_u16_zero_page(&mut self, addr: u8) -> u16 {
         u16::from_le_bytes([
             self.peek_u8(addr.into()),
             self.peek_u8(addr.wrapping_add(1).into()),
@@ -564,7 +561,7 @@ impl CPU {
     }
 
     pub fn write_u8(&mut self, addr: u16, data: u8) {
-        self.bus.mem_write(addr, data);
+        self.bus.cpu_write(addr, data);
     }
 
     #[allow(dead_code)]
@@ -576,13 +573,13 @@ impl CPU {
 
     fn stack_push_u8(&mut self, data: u8) {
         self.bus
-            .mem_write(self.stack_pointer as u16 + STACK_BASE, data);
+            .cpu_write(self.stack_pointer as u16 + STACK_BASE, data);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
     fn stack_pop_u8(&mut self) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
-        self.bus.mem_read(self.stack_pointer as u16 + STACK_BASE)
+        self.bus.cpu_read(self.stack_pointer as u16 + STACK_BASE)
     }
 
     fn stack_push_u16(&mut self, data: u16) {
@@ -642,6 +639,14 @@ impl CPU {
         Some(addr)
     }
 
+    fn interrupt_nmi(&mut self) {
+        self.stack_push_u16(self.program_counter);
+        self.stack_push_u8(self.status.bits());
+        self.status.insert(StatusFlags::INTERRUPT_DISABLE);
+        self.bus.tick(2);
+        self.program_counter = self.peek_u16(0xfffa);
+    }
+
     #[cfg(test)]
     pub fn run(&mut self) {
         self.run_with_callback(|_| {});
@@ -653,8 +658,11 @@ impl CPU {
     {
         loop {
             if self.status.contains(StatusFlags::BREAK_COMMAND) {
-                dbg!("break", self.program_counter);
                 return;
+            }
+
+            if let Some(_nmi) = self.bus.poll_nmi_status() {
+                self.interrupt_nmi();
             }
 
             callback(self);
@@ -665,13 +673,15 @@ impl CPU {
                 None => todo!("{}", format!("opcode {:#02x?}", opcode)),
             };
 
+            self.bus.tick(opcode.cycles);
+
             let addr = self.operand_address(&opcode.addressing_mode);
             (opcode.method)(self, addr);
         }
     }
 
     fn brk(&mut self, _addr: Option<u16>) {
-        dbg!("brk", self.program_counter);
+        // dbg!("brk", self.program_counter);
         self.status.insert(StatusFlags::BREAK_COMMAND);
     }
 
@@ -913,7 +923,7 @@ impl CPU {
 
     fn lsr(&mut self, addr: Option<u16>) {
         let result = if let Some(addr) = addr {
-            let value = self.bus.mem_read(addr);
+            let value = self.bus.cpu_read(addr);
             self.status
                 .set(StatusFlags::CARRY, value & 0b0000_0001 != 0);
             let result = value.wrapping_shr(1);
@@ -1130,7 +1140,7 @@ mod test {
 
     #[test]
     fn test_0xa9_lda_immediate_load_data() {
-        let bus = Bus::new(test_rom(vec![0xa9, 0x05, 0x00]));
+        let bus = Bus::new(&test_rom(vec![0xa9, 0x05, 0x00]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1142,7 +1152,7 @@ mod test {
 
     #[test]
     fn test_0xa9_lda_zero_flag() {
-        let bus = Bus::new(test_rom(vec![0xa9, 0x00, 0x00]));
+        let bus = Bus::new(&test_rom(vec![0xa9, 0x00, 0x00]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1152,7 +1162,7 @@ mod test {
 
     #[test]
     fn test_0xaa_tax_move_a_to_x() {
-        let bus = Bus::new(test_rom(vec![0xa9, 0x0a, 0xaa, 0x00]));
+        let bus = Bus::new(&test_rom(vec![0xa9, 0x0a, 0xaa, 0x00]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1162,7 +1172,7 @@ mod test {
 
     #[test]
     fn test_5_ops_working_together() {
-        let bus = Bus::new(test_rom(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]));
+        let bus = Bus::new(&test_rom(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1172,7 +1182,7 @@ mod test {
 
     #[test]
     fn test_inx_overflow() {
-        let bus = Bus::new(test_rom(vec![0xa2, 0xff, 0xe8, 0xe8, 0x00]));
+        let bus = Bus::new(&test_rom(vec![0xa2, 0xff, 0xe8, 0xe8, 0x00]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1182,7 +1192,7 @@ mod test {
 
     #[test]
     fn test_lda_from_memory() {
-        let bus = Bus::new(test_rom(vec![0xa5, 0x10, 0x00]));
+        let bus = Bus::new(&test_rom(vec![0xa5, 0x10, 0x00]));
         let mut cpu = CPU::new(bus);
         cpu.write_u8(0x10, 0x55);
         cpu.reset();
@@ -1193,7 +1203,7 @@ mod test {
 
     #[test]
     fn test_subroutines_with_inx() {
-        let bus = Bus::new(test_rom(vec![
+        let bus = Bus::new(&test_rom(vec![
             0xa2, 0x01, 0x20, 0x09, 0x06, 0x20, 0x09, 0x06, 0x00, 0xe8, 0x60,
         ]));
         let mut cpu = CPU::new(bus);
@@ -1205,7 +1215,7 @@ mod test {
 
     #[test]
     fn test_nested_subroutines() {
-        let bus = Bus::new(test_rom(vec![
+        let bus = Bus::new(&test_rom(vec![
             0xa2, 0x01, 0x20, 0x09, 0x06, 0x20, 0x09, 0x06, 0x00, 0xe8, 0x20, 0x0f, 0x06, 0x60,
             0x00, 0xe8, 0x60, 0x00,
         ]));
@@ -1218,7 +1228,7 @@ mod test {
 
     #[test]
     fn test_and() {
-        let bus = Bus::new(test_rom(vec![0xa9, 0x10, 0x29, 0x30]));
+        let bus = Bus::new(&test_rom(vec![0xa9, 0x10, 0x29, 0x30]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1229,7 +1239,7 @@ mod test {
 
     #[test]
     fn test_and_zero() {
-        let bus = Bus::new(test_rom(vec![0xa9, 0x1, 0x29, 0x2]));
+        let bus = Bus::new(&test_rom(vec![0xa9, 0x1, 0x29, 0x2]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1240,7 +1250,7 @@ mod test {
 
     #[test]
     fn test_adc() {
-        let bus = Bus::new(test_rom(vec![0xa9, 0xff, 0x69, 0x1, 0x69, 0x1]));
+        let bus = Bus::new(&test_rom(vec![0xa9, 0xff, 0x69, 0x1, 0x69, 0x1]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1251,7 +1261,7 @@ mod test {
 
     #[test]
     fn test_dex_bpl() {
-        let bus = Bus::new(test_rom(vec![0xa2, 0x4, 0xca, 0xca, 0x10, 0xfd]));
+        let bus = Bus::new(&test_rom(vec![0xa2, 0x4, 0xca, 0xca, 0x10, 0xfd]));
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.run();
@@ -1264,16 +1274,25 @@ mod test {
     fn nestest() {
         let nestest = include_bytes!("nestest.nes");
         let rom = Rom::new(&nestest.to_vec()).unwrap();
-        let bus = Bus::new(rom);
+        let bus = Bus::new(&rom);
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.program_counter = 0xc000;
-        let expected: Vec<_> = include_str!("nestest_no_cycle.log").lines().collect();
+        let expected: Vec<_> = include_str!("nestest.log").lines().collect();
         let mut i = 0;
+        let mut passed_reset = false;
         cpu.run_with_callback(|cpu| {
-            dbg!(i);
-            pretty_assertions::assert_eq!(format!("{cpu:?}"), expected[i]);
-            i += 1;
+            if cpu.program_counter == 0xc000 {
+                // panic!();
+                passed_reset = true;
+            }
+
+            if passed_reset {
+                // dbg!(i);
+                println!("{}", cpu.fmt());
+                pretty_assertions::assert_eq!(cpu.fmt(), expected[i]);
+                i += 1;
+            }
         });
     }
 }

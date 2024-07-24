@@ -1,3 +1,4 @@
+use crate::ppu::PPU;
 use crate::Rom;
 
 const RAM: u16 = 0x0;
@@ -6,6 +7,8 @@ const PPU_REGISTERS: u16 = 0x2000;
 const PPU_REGISTERS_MIRRORS_END: u16 = 0x3fff;
 const PRG_ROM: u16 = 0x8000;
 const PRG_ROM_END: u16 = 0xffff;
+
+const PRG_ROM_PAGE_SIZE: usize = 0x4000;
 
 // https://www.nesdev.org/wiki/CPU_memory_map
 //
@@ -39,41 +42,61 @@ const PRG_ROM_END: u16 = 0xffff;
 
 pub struct Bus {
     cpu_vram: [u8; 0x800],
-    rom: Rom,
+    prg_rom: Vec<u8>,
+    ppu: PPU,
+    pub cycles: usize,
 }
 
 impl Bus {
-    pub fn new(rom: Rom) -> Self {
+    pub fn new(rom: &Rom) -> Self {
         Self {
             cpu_vram: [0u8; 0x800],
-            rom,
+            prg_rom: rom.prg_rom.clone(),
+            ppu: PPU::new(rom),
+            cycles: 0,
         }
     }
 
-    pub fn mem_read(&self, addr: u16) -> u8 {
+    pub fn poll_nmi_status(&mut self) -> Option<u8> {
+        if self.ppu.nmi {
+            self.ppu.nmi = false;
+            Some(1)
+        } else {
+            None
+        }
+    }
+
+    pub fn tick(&mut self, cycles: u8) {
+        self.cycles += cycles as usize;
+        self.ppu.tick(cycles * 3);
+    }
+
+    pub fn cpu_read(&mut self, addr: u16) -> u8 {
         match addr {
-            RAM..=RAM_MIRRORS_END => self.cpu_vram[(addr & 0b0111_1111_1111) as usize],
-            PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => {
-                let _mirror_down_addr = dbg!(addr & 0b00100000_00000111);
-                todo!("PPU is not supported yet");
+            RAM..=RAM_MIRRORS_END => self.cpu_vram[(addr & 0x7ff) as usize],
+            PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => self.ppu.cpu_read(addr & 0x2007),
+            PRG_ROM..=PRG_ROM_END => {
+                let addr = addr - PRG_ROM;
+                if self.prg_rom.len() == PRG_ROM_PAGE_SIZE && addr >= PRG_ROM_PAGE_SIZE as u16 {
+                    // Mirror if needed
+                    self.prg_rom[addr as usize % PRG_ROM_PAGE_SIZE]
+                } else {
+                    self.prg_rom[addr as usize]
+                }
             }
-            PRG_ROM..=PRG_ROM_END => self.rom.mem_read(addr - PRG_ROM),
             _ => {
-                println!("Ignoring mem read access at {:x}", addr);
+                println!("Ignoring mem read access at {addr:#x}");
                 0
             }
         }
     }
 
-    pub fn mem_write(&mut self, addr: u16, data: u8) {
+    pub fn cpu_write(&mut self, addr: u16, data: u8) {
         match addr {
-            RAM..=RAM_MIRRORS_END => self.cpu_vram[(addr & 0b0111_1111_1111) as usize] = data,
-            PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => {
-                let _mirror_down_addr = addr & 0b00100000_00000111;
-                todo!("PPU is not supported yet");
-            }
-            PRG_ROM..=PRG_ROM_END => panic!("Attempt to write to cartridge ROM space"),
-            _ => println!("Ignoring mem write access at {:x}", addr),
+            RAM..=RAM_MIRRORS_END => self.cpu_vram[(addr & 0x7ff) as usize] = data,
+            PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => self.ppu.cpu_write(addr & 0x2007, data),
+            PRG_ROM..=PRG_ROM_END => panic!("Attempt to write at {addr:#x} to cartridge ROM space"),
+            _ => println!("Ignoring mem write access at {addr:#x}"),
         }
     }
 }

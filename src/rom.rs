@@ -26,32 +26,30 @@ bitflags! {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct Header {
     format: [u8; 4],
-    prg_rom_size: u8,
-    chr_rom_size: u8,
+    prg_rom_banks: u8,
+    chr_rom_banks: u8,
     flags6: Flags6,
     flags7: Flags7,
-    flags8: u8,
-    flags9: u8,
-    unused: [u8; 6],
+    _flags8: u8,
+    _flags9: u8,
+    _unused: [u8; 6],
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Mirroring {
     Vertical,
     Horizontal,
     FourScreen,
 }
 
-#[allow(dead_code)]
 pub struct Rom {
     pub prg_rom: Vec<u8>,
     pub chr_rom: Vec<u8>,
-    mapper: u8,
-    screen_mirroring: Mirroring,
+    _mapper: u8,
+    pub screen_mirroring: Mirroring,
 }
 
 impl Rom {
@@ -78,24 +76,15 @@ impl Rom {
 
         let has_trainer = header.flags6.contains(Flags6::TRAINER);
         let prg_rom_start: usize = 16 + if has_trainer { TRAINER_SIZE } else { 0 };
-        let chr_rom_start = prg_rom_start + header.prg_rom_size as usize * PRG_ROM_PAGE_SIZE;
-        let chr_rom_end = chr_rom_start + header.chr_rom_size as usize * CHR_ROM_PAGE_SIZE;
+        let chr_rom_start = prg_rom_start + header.prg_rom_banks as usize * PRG_ROM_PAGE_SIZE;
+        let chr_rom_end = chr_rom_start + header.chr_rom_banks as usize * CHR_ROM_PAGE_SIZE;
 
         Ok(Rom {
             prg_rom: raw[prg_rom_start..chr_rom_start].to_vec(),
             chr_rom: raw[chr_rom_start..chr_rom_end].to_vec(),
-            mapper,
+            _mapper: mapper,
             screen_mirroring,
         })
-    }
-
-    pub fn mem_read(&self, addr: u16) -> u8 {
-        if self.prg_rom.len() == PRG_ROM_PAGE_SIZE && addr >= PRG_ROM_PAGE_SIZE as u16 {
-            // Mirror if needed
-            self.prg_rom[addr as usize % PRG_ROM_PAGE_SIZE]
-        } else {
-            self.prg_rom[addr as usize]
-        }
     }
 }
 
@@ -113,7 +102,7 @@ pub mod tests {
         Rom {
             prg_rom,
             chr_rom: Vec::with_capacity(CHR_ROM_PAGE_SIZE),
-            mapper: 0,
+            _mapper: 0,
             screen_mirroring: Mirroring::Vertical,
         }
     }
