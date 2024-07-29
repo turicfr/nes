@@ -93,11 +93,11 @@ pub mod tests {
     use crate::rom::{Mirroring, CHR_ROM_PAGE_SIZE, PRG_ROM_PAGE_SIZE};
     use crate::Rom;
 
-    pub fn test_rom(data: Vec<u8>) -> Rom {
+    pub fn test_rom() -> Rom {
         let mut prg_rom = vec![0u8; PRG_ROM_PAGE_SIZE * 2];
-        prg_rom.splice(0x600..0x600 + data.len(), data);
-        prg_rom[0x7ffc] = 0x0;
-        prg_rom[0x7ffd] = 0x86;
+        // Set the reset vector at $fffc-$fffd.
+        prg_rom[0xfffc - PRG_ROM_PAGE_SIZE * 2] = 0x00;
+        prg_rom[0xfffd - PRG_ROM_PAGE_SIZE * 2] = 0x06;
 
         Rom {
             prg_rom,

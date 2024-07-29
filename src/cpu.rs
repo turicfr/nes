@@ -528,6 +528,8 @@ impl CPU {
         self.register_x = 0;
         self.register_y = 0;
         self.status = StatusFlags::from_bits_truncate(0b0010_0000);
+
+        // Set `program_counter` to the reset vector at $fffc–$fffd.
         self.program_counter = self.peek_u16(0xfffc);
     }
 
@@ -645,6 +647,13 @@ impl CPU {
         self.status.insert(StatusFlags::INTERRUPT_DISABLE);
         self.bus.tick(2);
         self.program_counter = self.peek_u16(0xfffa);
+    }
+
+    #[cfg(test)]
+    fn load(&mut self, data: Vec<u8>) {
+        for i in 0..data.len() as u16 {
+            self.bus.cpu_write(0x600 + i, data[i as usize]);
+        }
     }
 
     #[cfg(test)]
@@ -1140,8 +1149,10 @@ mod test {
 
     #[test]
     fn test_0xa9_lda_immediate_load_data() {
-        let bus = Bus::new(&test_rom(vec![0xa9, 0x05, 0x00]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa9, 0x05, 0x00]);
         cpu.reset();
         cpu.run();
 
@@ -1152,8 +1163,10 @@ mod test {
 
     #[test]
     fn test_0xa9_lda_zero_flag() {
-        let bus = Bus::new(&test_rom(vec![0xa9, 0x00, 0x00]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa9, 0x00, 0x00]);
         cpu.reset();
         cpu.run();
 
@@ -1162,8 +1175,10 @@ mod test {
 
     #[test]
     fn test_0xaa_tax_move_a_to_x() {
-        let bus = Bus::new(&test_rom(vec![0xa9, 0x0a, 0xaa, 0x00]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa9, 0x0a, 0xaa, 0x00]);
         cpu.reset();
         cpu.run();
 
@@ -1172,8 +1187,10 @@ mod test {
 
     #[test]
     fn test_5_ops_working_together() {
-        let bus = Bus::new(&test_rom(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]);
         cpu.reset();
         cpu.run();
 
@@ -1182,8 +1199,10 @@ mod test {
 
     #[test]
     fn test_inx_overflow() {
-        let bus = Bus::new(&test_rom(vec![0xa2, 0xff, 0xe8, 0xe8, 0x00]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa2, 0xff, 0xe8, 0xe8, 0x00]);
         cpu.reset();
         cpu.run();
 
@@ -1192,8 +1211,10 @@ mod test {
 
     #[test]
     fn test_lda_from_memory() {
-        let bus = Bus::new(&test_rom(vec![0xa5, 0x10, 0x00]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa5, 0x10, 0x00]);
         cpu.write_u8(0x10, 0x55);
         cpu.reset();
         cpu.run();
@@ -1203,10 +1224,12 @@ mod test {
 
     #[test]
     fn test_subroutines_with_inx() {
-        let bus = Bus::new(&test_rom(vec![
-            0xa2, 0x01, 0x20, 0x09, 0x06, 0x20, 0x09, 0x06, 0x00, 0xe8, 0x60,
-        ]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![
+            0xa2, 0x01, 0x20, 0x09, 0x06, 0x20, 0x09, 0x06, 0x00, 0xe8, 0x60,
+        ]);
         cpu.reset();
         cpu.run();
 
@@ -1215,11 +1238,13 @@ mod test {
 
     #[test]
     fn test_nested_subroutines() {
-        let bus = Bus::new(&test_rom(vec![
+        let bus = Bus::new(&test_rom());
+        let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![
             0xa2, 0x01, 0x20, 0x09, 0x06, 0x20, 0x09, 0x06, 0x00, 0xe8, 0x20, 0x0f, 0x06, 0x60,
             0x00, 0xe8, 0x60, 0x00,
-        ]));
-        let mut cpu = CPU::new(bus);
+        ]);
         cpu.reset();
         cpu.run();
 
@@ -1228,8 +1253,10 @@ mod test {
 
     #[test]
     fn test_and() {
-        let bus = Bus::new(&test_rom(vec![0xa9, 0x10, 0x29, 0x30]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa9, 0x10, 0x29, 0x30]);
         cpu.reset();
         cpu.run();
 
@@ -1239,8 +1266,10 @@ mod test {
 
     #[test]
     fn test_and_zero() {
-        let bus = Bus::new(&test_rom(vec![0xa9, 0x1, 0x29, 0x2]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa9, 0x1, 0x29, 0x2]);
         cpu.reset();
         cpu.run();
 
@@ -1250,8 +1279,10 @@ mod test {
 
     #[test]
     fn test_adc() {
-        let bus = Bus::new(&test_rom(vec![0xa9, 0xff, 0x69, 0x1, 0x69, 0x1]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa9, 0xff, 0x69, 0x1, 0x69, 0x1]);
         cpu.reset();
         cpu.run();
 
@@ -1261,8 +1292,10 @@ mod test {
 
     #[test]
     fn test_dex_bpl() {
-        let bus = Bus::new(&test_rom(vec![0xa2, 0x4, 0xca, 0xca, 0x10, 0xfd]));
+        let bus = Bus::new(&test_rom());
         let mut cpu = CPU::new(bus);
+
+        cpu.load(vec![0xa2, 0x4, 0xca, 0xca, 0x10, 0xfd]);
         cpu.reset();
         cpu.run();
 
@@ -1272,13 +1305,13 @@ mod test {
 
     #[test]
     fn nestest() {
-        let nestest = include_bytes!("nestest.nes");
+        let nestest = include_bytes!("../tests/nestest.nes");
         let rom = Rom::new(&nestest.to_vec()).unwrap();
         let bus = Bus::new(&rom);
         let mut cpu = CPU::new(bus);
         cpu.reset();
         cpu.program_counter = 0xc000;
-        let expected: Vec<_> = include_str!("nestest.log").lines().collect();
+        let expected: Vec<_> = include_str!("../tests/nestest.log").lines().collect();
         let mut i = 0;
         let mut passed_reset = false;
         cpu.run_with_callback(|cpu| {
