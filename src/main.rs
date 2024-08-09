@@ -114,7 +114,7 @@ fn main() -> Result<(), String> {
     cpu.reset();
 
     let mut event_pump = sdl_context.event_pump()?;
-    cpu.run_with_callback(move |_cpu| {
+    cpu.run_with_callback(move |_debug| {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }

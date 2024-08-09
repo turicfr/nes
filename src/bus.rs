@@ -71,7 +71,7 @@ impl Bus {
         self.ppu.tick(cycles * 3);
     }
 
-    pub fn cpu_read(&mut self, addr: u16) -> u8 {
+    pub fn read(&mut self, addr: u16) -> u8 {
         match addr {
             RAM..=RAM_MIRRORS_END => self.cpu_vram[(addr & 0x7ff) as usize],
             PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => self.ppu.cpu_read(addr & 0x2007),
@@ -91,7 +91,7 @@ impl Bus {
         }
     }
 
-    pub fn cpu_write(&mut self, addr: u16, data: u8) {
+    pub fn write(&mut self, addr: u16, data: u8) {
         match addr {
             RAM..=RAM_MIRRORS_END => self.cpu_vram[(addr & 0x7ff) as usize] = data,
             PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => self.ppu.cpu_write(addr & 0x2007, data),

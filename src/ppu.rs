@@ -142,6 +142,15 @@ impl PPU {
         }
     }
 
+    pub fn cpu_read_base(&self, addr: u16) -> u8 {
+        match addr {
+            STATUS_REGISTER => self.status.bits(),
+            OAM_DATA => todo!("read OAM_DATA"),
+            DATA_REGISTER => panic!("not supported"),
+            _ => panic!("Attempt to read from write-only PPU address {addr:#x}"),
+        }
+    }
+
     pub fn cpu_write(&mut self, addr: u16, data: u8) {
         match addr {
             CTRL_REGISTER => self.ctrl = ControlRegister::from_bits_truncate(data),
@@ -195,11 +204,7 @@ impl PPU {
                 self.internal_data_buf = self.name_table[self.mirror_vram_addr(addr) as usize];
                 result
             }
-            UNUSED..=UNUSED_END => {
-                panic!(
-                    "address space {UNUSED:#x}..{UNUSED_END:#x} is not expected to be used, requested {addr:#x}"
-                )
-            }
+            UNUSED..=UNUSED_END => panic!("address space {UNUSED:#x}..{UNUSED_END:#x} is not expected to be used, requested {addr:#x}"),
             PALETTE..=PALETTE_END => self.palette_table[(addr - PALETTE) as usize],
             _ => panic!("unexpected access to mirrored address space {addr:#x}"),
         }
