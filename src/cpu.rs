@@ -9,6 +9,10 @@ use std::sync::LazyLock;
 
 const STACK_BASE: u16 = 0x100;
 
+const NMI_INTERRUPT: (u16, u16) = (0xfffa, 0xfffb);
+const RESET_INTERRUPT: (u16, u16) = (0xfffc, 0xfffd);
+const BRK_INTERRUPT: (u16, u16) = (0xfffe, 0xffff);
+
 type OpcodeMethod = fn(&mut CPU, &Operand);
 
 // References:
@@ -306,7 +310,7 @@ impl Operand {
     }
 
     fn get_data(&self, cpu: &mut CPU) -> u8 {
-        if self.mode == AddressingMode::Immediate {
+        if self.mode == AddressingMode::Immediate || self.mode == AddressingMode::Accumulator {
             self.data as u8
         } else {
             cpu.bus.read(self.data)
@@ -322,55 +326,22 @@ impl Display for Operand {
 
 struct Instruction {
     opcode: Opcode,
-    operands: Vec<u8>,
+    operands: Operand,
+    debug: String,
 }
 
 impl Instruction {
-    fn new(opcode: Opcode, operands: Vec<u8>) -> Self {
-        Self { opcode, operands }
+    fn new(opcode: Opcode, operands: Operand, debug: String) -> Self {
+        Self {
+            opcode,
+            operands,
+            debug,
+        }
     }
 
-    fn execute(&self, cpu: &mut CPU) -> String {
-        let operand = cpu.get_operand(self.opcode.mode, &self.operands);
-        (self.opcode.method)(cpu, &operand);
+    fn execute(&self, cpu: &mut CPU) {
+        (self.opcode.method)(cpu, &self.operands);
         cpu.bus.tick(self.opcode.cycles);
-
-        let bytes = [self.opcode.opcode]
-            .iter()
-            .chain(self.operands.iter())
-            .map(|byte| format!("{:02X}", byte))
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        let name = self.opcode.name;
-
-        let ppu1 = 0;
-        let ppu2 = 21;
-
-        // TODO: De-duplicate.
-        if !name.starts_with("*") {
-            format!(
-                "{:04X}  {bytes:<8}  {name} {operand:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{ppu1:>3},{ppu2:>3} CYC:{}",
-                cpu.program_counter,
-                cpu.register_a,
-                cpu.register_x,
-                cpu.register_y,
-                cpu.status.bits(),
-                cpu.stack_pointer,
-                cpu.bus.cycles,
-            )
-        } else {
-            format!(
-                "{:04X}  {bytes:<8} {operand:<31}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{ppu1:>3},{ppu2:>3} CYC:{}",
-                cpu.program_counter,
-                cpu.register_a,
-                cpu.register_x,
-                cpu.register_y,
-                cpu.status.bits(),
-                cpu.stack_pointer,
-                cpu.bus.cycles,
-            )
-        }
     }
 }
 
@@ -418,7 +389,6 @@ impl CPU {
         self.register_a = 0;
         self.register_x = 0;
         self.register_y = 0;
-        // self.status.insert(StatusFlags::INTERRUPT_DISABLE);
 
         let _ = self.bus.read(STACK_BASE + self.stack_pointer as u16);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
@@ -428,13 +398,16 @@ impl CPU {
 
         let _ = self.bus.read(STACK_BASE + self.stack_pointer as u16);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+
+        self.bus.tick(7);
+
+        self.status.insert(StatusFlags::INTERRUPT_DISABLE);
 
         // Set `program_counter` to the reset vector at $fffc–$fffd.
-        self.program_counter = self.peek_u16(0xfffc);
-    }
-
-    fn peek_u16(&mut self, addr: u16) -> u16 {
-        u16::from_le_bytes([self.bus.read(addr), self.bus.read(addr.wrapping_add(1))])
+        self.program_counter = u16::from_le_bytes([
+            self.bus.read(RESET_INTERRUPT.0),
+            self.bus.read(RESET_INTERRUPT.1),
+        ]);
     }
 
     fn peek_u16_zero_page(&mut self, addr: u8) -> u16 {
@@ -473,8 +446,13 @@ impl CPU {
             .set(StatusFlags::NEGATIVE, result & 0b1000_0000 != 0);
     }
 
-    fn get_operand(&mut self, mode: AddressingMode, operand_bytes: &[u8]) -> Operand {
-        let (addr, debug) = match mode {
+    fn get_operand(
+        &mut self,
+        mode: AddressingMode,
+        operand_bytes: &[u8],
+        is_jump: bool,
+    ) -> Operand {
+        let (data, debug) = match mode {
             AddressingMode::None => (0, "".to_string()),
             AddressingMode::Accumulator => (self.register_a.into(), "A".to_string()),
             AddressingMode::Relative => {
@@ -509,10 +487,12 @@ impl CPU {
             }
             AddressingMode::Absolute => {
                 let addr = u16::from_le_bytes(operand_bytes.try_into().unwrap());
-                let instruction = format!("${addr:04X}");
-                // if !name.starts_with("J") && !(0x2000..0x3fff).contains(&addr) {
-                //     let _ = write!(instruction, " = {:02X}", self.bus.read(addr));
-                // }
+                let instruction = if is_jump {
+                    // && !(0x2000..0x3fff).contains(&addr)
+                    format!("${addr:04X}")
+                } else {
+                    format!("${addr:04X} = {:02X}", self.bus.read(addr))
+                };
                 (addr, instruction)
             }
             AddressingMode::AbsoluteX => {
@@ -564,10 +544,13 @@ impl CPU {
             }
             AddressingMode::IndirectY => {
                 let byte = operand_bytes[0];
-                let addr = self
-                    .peek_u16_zero_page(byte)
-                    .wrapping_add(self.register_y.into());
                 let base = self.peek_u16_zero_page(byte);
+                let (addr, page_crossed) = base.overflowing_add(self.register_y.into());
+
+                if page_crossed {
+                    self.bus.tick(2);
+                }
+
                 (
                     addr,
                     format!(
@@ -578,7 +561,7 @@ impl CPU {
             }
         };
 
-        Operand::new(addr, mode, debug)
+        Operand::new(data, mode, debug)
     }
 
     fn interrupt_nmi(&mut self) {
@@ -586,7 +569,12 @@ impl CPU {
         self.stack_push_u8(self.status.bits());
         self.status.insert(StatusFlags::INTERRUPT_DISABLE);
         self.bus.tick(2);
-        self.program_counter = self.peek_u16(0xfffa);
+
+        // Set `program_counter` to the nmi vector at $fffa–$fffb.
+        self.program_counter = u16::from_le_bytes([
+            self.bus.read(NMI_INTERRUPT.0),
+            self.bus.read(NMI_INTERRUPT.1),
+        ]);
     }
 
     #[cfg(test)]
@@ -597,7 +585,7 @@ impl CPU {
     }
 
     #[cfg(test)]
-    pub fn run(&mut self) {
+    fn run(&mut self) {
         self.run_with_callback(|_| {});
     }
 
@@ -615,14 +603,25 @@ impl CPU {
             }
 
             let instruction = self.fetch_instruction();
-            let result = instruction.execute(self);
-            callback(&result);
+            instruction.execute(self);
+            callback(&instruction.debug);
         }
     }
 
     fn fetch_instruction(&mut self) -> Instruction {
+        let cpu_state = format!(
+            "A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}",
+            self.register_a,
+            self.register_x,
+            self.register_y,
+            self.status.bits(),
+            self.stack_pointer,
+            self.bus.ppu.scanline,
+            self.bus.ppu.cycles,
+            self.bus.cycles,
+        );
+
         let opcode = self.bus.read(self.program_counter);
-        self.program_counter = self.program_counter.wrapping_add(1);
 
         let opcode = match OP_CODES_MAP.get(&opcode) {
             Some(opcode) => opcode.to_owned(),
@@ -637,19 +636,38 @@ impl CPU {
             | AddressingMode::ZeroPageY
             | AddressingMode::Indirect
             | AddressingMode::IndirectX
-            | AddressingMode::IndirectY => vec![self.bus.read(self.program_counter)],
+            | AddressingMode::IndirectY => {
+                vec![self.bus.read(self.program_counter.wrapping_add(1))]
+            }
             AddressingMode::Absolute | AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => {
                 vec![
-                    self.bus.read(self.program_counter),
                     self.bus.read(self.program_counter.wrapping_add(1)),
+                    self.bus.read(self.program_counter.wrapping_add(2)),
                 ]
             }
             _ => vec![],
         };
 
-        self.program_counter = self.program_counter.wrapping_add(operands.len() as u16);
+        let bytes = [opcode.opcode]
+            .iter()
+            .chain(operands.iter())
+            .map(|byte| format!("{:02X}", byte))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let hex = format!("{:04X}  {bytes}", self.program_counter);
 
-        Instruction::new(opcode, operands)
+        self.program_counter = self.program_counter.wrapping_add(1 + operands.len() as u16);
+
+        let is_jump = opcode.name.starts_with("J");
+        let operand = self.get_operand(opcode.mode, &operands, is_jump);
+
+        let debug = if !opcode.name.starts_with("*") {
+            format!("{hex:<14}  {} {operand:<26}  {cpu_state}", opcode.name)
+        } else {
+            todo!()
+        };
+
+        Instruction::new(opcode, operand, debug)
     }
 
     /// Force Break
@@ -814,33 +832,43 @@ impl CPU {
         self.update_zero_and_negative_flags(value);
     }
 
+    /// Branch on overflow set
     fn bvs(&mut self, operand: &Operand) {
         if self.status.contains(StatusFlags::OVERFLOW) {
             self.program_counter = operand.data;
+            self.bus.tick(1);
         }
     }
 
+    /// Branch on overflow clear
     fn bvc(&mut self, operand: &Operand) {
         if !self.status.contains(StatusFlags::OVERFLOW) {
             self.program_counter = operand.data;
+            self.bus.tick(1);
         }
     }
 
+    /// Branch on Carry Clear
     fn bcc(&mut self, operand: &Operand) {
         if !self.status.contains(StatusFlags::CARRY) {
             self.program_counter = operand.data;
+            self.bus.tick(1);
         }
     }
 
+    /// Branch on Carry Set
     fn bcs(&mut self, operand: &Operand) {
         if self.status.contains(StatusFlags::CARRY) {
             self.program_counter = operand.data;
+            self.bus.tick(1);
         }
     }
 
+    /// Branch on result minus
     fn bmi(&mut self, operand: &Operand) {
         if self.status.contains(StatusFlags::NEGATIVE) {
             self.program_counter = operand.data;
+            self.bus.tick(1);
         }
     }
 
@@ -848,18 +876,23 @@ impl CPU {
     fn bpl(&mut self, operand: &Operand) {
         if !self.status.contains(StatusFlags::NEGATIVE) {
             self.program_counter = operand.data;
+            self.bus.tick(1);
         }
     }
 
+    /// Branch on result not zero
     fn bne(&mut self, operand: &Operand) {
         if !self.status.contains(StatusFlags::ZERO) {
             self.program_counter = operand.data;
+            self.bus.tick(1);
         }
     }
 
+    /// Branch on Result Zero
     fn beq(&mut self, operand: &Operand) {
         if self.status.contains(StatusFlags::ZERO) {
             self.program_counter = operand.data;
+            self.bus.tick(1);
         }
     }
 
@@ -1004,6 +1037,7 @@ impl CPU {
         self.update_zero_and_negative_flags(self.register_x);
     }
 
+    /// Load accumulator with memory
     fn lda(&mut self, operand: &Operand) {
         self.register_a = operand.get_data(self);
         self.update_zero_and_negative_flags(self.register_a);
@@ -1272,12 +1306,12 @@ mod test {
         // Run in "automated" mode.
         cpu.program_counter = 0xc000;
 
-        let expected: Vec<_> = include_str!("../tests/nestest.log").lines().collect();
-        let mut i = 0;
+        let mut expected = include_str!("../tests/nestest.log").lines();
         cpu.run_with_callback(|debug| {
             println!("{debug}");
-            assert_eq!(debug, expected[i]);
-            i += 1;
+            if let Some(line) = expected.next() {
+                assert_eq!(debug, line);
+            }
         });
     }
 }

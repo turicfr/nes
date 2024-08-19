@@ -43,7 +43,7 @@ const PRG_ROM_PAGE_SIZE: usize = 0x4000;
 pub struct Bus {
     cpu_vram: [u8; 0x800],
     prg_rom: Vec<u8>,
-    ppu: PPU,
+    pub ppu: PPU,
     pub cycles: usize,
 }
 

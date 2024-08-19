@@ -79,8 +79,8 @@ pub struct PPU {
     ctrl: ControlRegister,
     status: StatusRegister,
     mask: MaskRegister,
-    scanline: u16,
-    cycles: usize,
+    pub scanline: u16,
+    pub cycles: usize,
     pub nmi: bool,
 }
 
@@ -108,7 +108,7 @@ impl PPU {
     pub fn tick(&mut self, cycles: u8) -> bool {
         self.cycles += cycles as usize;
         if self.cycles >= 341 {
-            self.cycles = 0;
+            self.cycles = self.cycles % 341;
             self.scanline += 1;
 
             if self.scanline == 241 {
