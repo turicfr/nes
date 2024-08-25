@@ -3,7 +3,6 @@ use crate::carrying::CarryingExt;
 use bitflags::bitflags;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::ops::Shl;
 use std::sync::LazyLock;
 
@@ -17,240 +16,241 @@ type OpcodeMethod = fn(&mut CPU, &Operand);
 
 // References:
 // * https://www.nesdev.org/obelisk-6502-guide/reference.html
+// * http://www.textfiles.com/programming/opcod6502.txt
 // * https://web.archive.org/web/20220831224234if_/https://users.telenet.be/kim1-6502/6502/proman.html
 // * https://web.archive.org/web/20220831224314if_/http://users.telenet.be/kim1-6502/6502/pm-apndx.html
 const INSTRUCTIONS: [Opcode; 231] = [
-    Opcode::new(0x00, "BRK", AddressingMode::None, 7, CPU::brk),
-    Opcode::new(0xea, "NOP", AddressingMode::None, 2, CPU::nop),
-    Opcode::new(0x18, "CLC", AddressingMode::None, 2, CPU::clc),
-    Opcode::new(0x38, "SEC", AddressingMode::None, 2, CPU::sec),
-    Opcode::new(0xd8, "CLD", AddressingMode::None, 2, CPU::cld),
-    Opcode::new(0xf8, "SED", AddressingMode::None, 2, CPU::sed),
-    Opcode::new(0xb8, "CLV", AddressingMode::None, 2, CPU::clv),
-    Opcode::new(0x58, "CLI", AddressingMode::None, 2, CPU::cli),
-    Opcode::new(0x78, "SEI", AddressingMode::None, 2, CPU::sei),
-    Opcode::new(0xaa, "TAX", AddressingMode::None, 2, CPU::tax),
-    Opcode::new(0x8a, "TXA", AddressingMode::None, 2, CPU::txa),
-    Opcode::new(0x9a, "TXS", AddressingMode::None, 2, CPU::txs),
-    Opcode::new(0xba, "TSX", AddressingMode::None, 2, CPU::tsx),
-    Opcode::new(0x20, "JSR", AddressingMode::Absolute, 6, CPU::jsr),
-    Opcode::new(0xe8, "INX", AddressingMode::None, 2, CPU::inx),
-    Opcode::new(0xc8, "INY", AddressingMode::None, 2, CPU::iny),
-    Opcode::new(0x60, "RTS", AddressingMode::None, 6, CPU::rts),
-    Opcode::new(0xe6, "INC", AddressingMode::ZeroPage, 5, CPU::inc),
-    Opcode::new(0xf6, "INC", AddressingMode::ZeroPageX, 6, CPU::inc),
-    Opcode::new(0xee, "INC", AddressingMode::Absolute, 6, CPU::inc),
-    Opcode::new(0xfe, "INC", AddressingMode::AbsoluteX, 7, CPU::inc),
-    Opcode::new(0xa9, "LDA", AddressingMode::Immediate, 2, CPU::lda),
-    Opcode::new(0xa5, "LDA", AddressingMode::ZeroPage, 3, CPU::lda),
-    Opcode::new(0xb5, "LDA", AddressingMode::ZeroPageX, 4, CPU::lda),
-    Opcode::new(0xad, "LDA", AddressingMode::Absolute, 4, CPU::lda),
-    Opcode::new(0xbd, "LDA", AddressingMode::AbsoluteX, 4, CPU::lda),
-    Opcode::new(0xb9, "LDA", AddressingMode::AbsoluteY, 4, CPU::lda),
-    Opcode::new(0xa1, "LDA", AddressingMode::IndirectX, 6, CPU::lda),
-    Opcode::new(0xb1, "LDA", AddressingMode::IndirectY, 5, CPU::lda),
-    Opcode::new(0xa2, "LDX", AddressingMode::Immediate, 2, CPU::ldx),
-    Opcode::new(0xa6, "LDX", AddressingMode::ZeroPage, 3, CPU::ldx),
-    Opcode::new(0xb6, "LDX", AddressingMode::ZeroPageY, 4, CPU::ldx),
-    Opcode::new(0xae, "LDX", AddressingMode::Absolute, 4, CPU::ldx),
-    Opcode::new(0xbe, "LDX", AddressingMode::AbsoluteY, 4, CPU::ldx),
-    Opcode::new(0xa0, "LDY", AddressingMode::Immediate, 2, CPU::ldy),
-    Opcode::new(0xa4, "LDY", AddressingMode::ZeroPage, 3, CPU::ldy),
-    Opcode::new(0xb4, "LDY", AddressingMode::ZeroPageX, 4, CPU::ldy),
-    Opcode::new(0xac, "LDY", AddressingMode::Absolute, 4, CPU::ldy),
-    Opcode::new(0xbc, "LDY", AddressingMode::AbsoluteX, 4, CPU::ldy),
-    Opcode::new(0x85, "STA", AddressingMode::ZeroPage, 3, CPU::sta),
-    Opcode::new(0x95, "STA", AddressingMode::ZeroPageX, 4, CPU::sta),
-    Opcode::new(0x8d, "STA", AddressingMode::Absolute, 4, CPU::sta),
-    Opcode::new(0x9d, "STA", AddressingMode::AbsoluteX, 5, CPU::sta),
-    Opcode::new(0x99, "STA", AddressingMode::AbsoluteY, 5, CPU::sta),
-    Opcode::new(0x81, "STA", AddressingMode::IndirectX, 6, CPU::sta),
-    Opcode::new(0x91, "STA", AddressingMode::IndirectY, 6, CPU::sta),
-    Opcode::new(0x86, "STX", AddressingMode::ZeroPage, 3, CPU::stx),
-    Opcode::new(0x96, "STX", AddressingMode::ZeroPageY, 4, CPU::stx),
-    Opcode::new(0x8e, "STX", AddressingMode::Absolute, 4, CPU::stx),
-    Opcode::new(0x84, "STY", AddressingMode::ZeroPage, 3, CPU::sty),
-    Opcode::new(0x94, "STY", AddressingMode::ZeroPageX, 4, CPU::sty),
-    Opcode::new(0x8c, "STY", AddressingMode::Absolute, 4, CPU::sty),
-    Opcode::new(0x29, "AND", AddressingMode::Immediate, 2, CPU::and),
-    Opcode::new(0x25, "AND", AddressingMode::ZeroPage, 3, CPU::and),
-    Opcode::new(0x35, "AND", AddressingMode::ZeroPageX, 4, CPU::and),
-    Opcode::new(0x2D, "AND", AddressingMode::Absolute, 4, CPU::and),
-    Opcode::new(0x3D, "AND", AddressingMode::AbsoluteX, 4, CPU::and),
-    Opcode::new(0x39, "AND", AddressingMode::AbsoluteY, 4, CPU::and),
-    Opcode::new(0x21, "AND", AddressingMode::IndirectX, 6, CPU::and),
-    Opcode::new(0x31, "AND", AddressingMode::IndirectY, 5, CPU::and),
-    Opcode::new(0x49, "EOR", AddressingMode::Immediate, 2, CPU::eor),
-    Opcode::new(0x45, "EOR", AddressingMode::ZeroPage, 3, CPU::eor),
-    Opcode::new(0x55, "EOR", AddressingMode::ZeroPageX, 4, CPU::eor),
-    Opcode::new(0x4D, "EOR", AddressingMode::Absolute, 4, CPU::eor),
-    Opcode::new(0x5D, "EOR", AddressingMode::AbsoluteX, 4, CPU::eor),
-    Opcode::new(0x59, "EOR", AddressingMode::AbsoluteY, 4, CPU::eor),
-    Opcode::new(0x41, "EOR", AddressingMode::IndirectX, 6, CPU::eor),
-    Opcode::new(0x51, "EOR", AddressingMode::IndirectY, 5, CPU::eor),
-    Opcode::new(0x09, "ORA", AddressingMode::Immediate, 2, CPU::ora),
-    Opcode::new(0x05, "ORA", AddressingMode::ZeroPage, 3, CPU::ora),
-    Opcode::new(0x15, "ORA", AddressingMode::ZeroPageX, 4, CPU::ora),
-    Opcode::new(0x0d, "ORA", AddressingMode::Absolute, 4, CPU::ora),
-    Opcode::new(0x1d, "ORA", AddressingMode::AbsoluteX, 4, CPU::ora),
-    Opcode::new(0x19, "ORA", AddressingMode::AbsoluteY, 4, CPU::ora),
-    Opcode::new(0x01, "ORA", AddressingMode::IndirectX, 6, CPU::ora),
-    Opcode::new(0x11, "ORA", AddressingMode::IndirectY, 5, CPU::ora),
-    Opcode::new(0x69, "ADC", AddressingMode::Immediate, 2, CPU::adc),
-    Opcode::new(0x65, "ADC", AddressingMode::ZeroPage, 3, CPU::adc),
-    Opcode::new(0x75, "ADC", AddressingMode::ZeroPageX, 4, CPU::adc),
-    Opcode::new(0x6d, "ADC", AddressingMode::Absolute, 4, CPU::adc),
-    Opcode::new(0x7d, "ADC", AddressingMode::AbsoluteX, 4, CPU::adc),
-    Opcode::new(0x79, "ADC", AddressingMode::AbsoluteY, 4, CPU::adc),
-    Opcode::new(0x61, "ADC", AddressingMode::IndirectX, 6, CPU::adc),
-    Opcode::new(0x71, "ADC", AddressingMode::IndirectY, 5, CPU::adc),
-    Opcode::new(0xe9, "SBC", AddressingMode::Immediate, 2, CPU::sbc),
-    Opcode::new(0xe5, "SBC", AddressingMode::ZeroPage, 3, CPU::sbc),
-    Opcode::new(0xf5, "SBC", AddressingMode::ZeroPageX, 4, CPU::sbc),
-    Opcode::new(0xed, "SBC", AddressingMode::Absolute, 4, CPU::sbc),
-    Opcode::new(0xfd, "SBC", AddressingMode::AbsoluteX, 4, CPU::sbc),
-    Opcode::new(0xf9, "SBC", AddressingMode::AbsoluteY, 4, CPU::sbc),
-    Opcode::new(0xe1, "SBC", AddressingMode::IndirectX, 6, CPU::sbc),
-    Opcode::new(0xf1, "SBC", AddressingMode::IndirectY, 5, CPU::sbc),
-    Opcode::new(0xc9, "CMP", AddressingMode::Immediate, 2, CPU::cmp),
-    Opcode::new(0xc5, "CMP", AddressingMode::ZeroPage, 3, CPU::cmp),
-    Opcode::new(0xd5, "CMP", AddressingMode::ZeroPageX, 4, CPU::cmp),
-    Opcode::new(0xcd, "CMP", AddressingMode::Absolute, 4, CPU::cmp),
-    Opcode::new(0xdd, "CMP", AddressingMode::AbsoluteX, 4, CPU::cmp),
-    Opcode::new(0xd9, "CMP", AddressingMode::AbsoluteY, 4, CPU::cmp),
-    Opcode::new(0xc1, "CMP", AddressingMode::IndirectX, 6, CPU::cmp),
-    Opcode::new(0xd1, "CMP", AddressingMode::IndirectY, 5, CPU::cmp),
-    Opcode::new(0xe0, "CPX", AddressingMode::Immediate, 2, CPU::cpx),
-    Opcode::new(0xe4, "CPX", AddressingMode::ZeroPage, 3, CPU::cpx),
-    Opcode::new(0xec, "CPX", AddressingMode::Absolute, 4, CPU::cpx),
-    Opcode::new(0xc0, "CPY", AddressingMode::Immediate, 2, CPU::cpy),
-    Opcode::new(0xc4, "CPY", AddressingMode::ZeroPage, 3, CPU::cpy),
-    Opcode::new(0xcc, "CPY", AddressingMode::Absolute, 4, CPU::cpy),
-    Opcode::new(0xf0, "BEQ", AddressingMode::Relative, 2, CPU::beq),
-    Opcode::new(0xd0, "BNE", AddressingMode::Relative, 2, CPU::bne),
-    Opcode::new(0xb0, "BCS", AddressingMode::Relative, 2, CPU::bcs),
-    Opcode::new(0x90, "BCC", AddressingMode::Relative, 2, CPU::bcc),
-    Opcode::new(0x10, "BPL", AddressingMode::Relative, 2, CPU::bpl),
-    Opcode::new(0x30, "BMI", AddressingMode::Relative, 2, CPU::bmi),
-    Opcode::new(0x50, "BVC", AddressingMode::Relative, 2, CPU::bvc),
-    Opcode::new(0x70, "BVS", AddressingMode::Relative, 2, CPU::bvs),
-    Opcode::new(0xc6, "DEC", AddressingMode::ZeroPage, 5, CPU::dec),
-    Opcode::new(0xd6, "DEC", AddressingMode::ZeroPageX, 6, CPU::dec),
-    Opcode::new(0xce, "DEC", AddressingMode::Absolute, 6, CPU::dec),
-    Opcode::new(0xde, "DEC", AddressingMode::AbsoluteX, 7, CPU::dec),
-    Opcode::new(0xca, "DEX", AddressingMode::None, 2, CPU::dex),
-    Opcode::new(0x88, "DEY", AddressingMode::None, 2, CPU::dey),
-    Opcode::new(0x4a, "LSR", AddressingMode::Accumulator, 2, CPU::lsr),
-    Opcode::new(0x46, "LSR", AddressingMode::ZeroPage, 5, CPU::lsr),
-    Opcode::new(0x56, "LSR", AddressingMode::ZeroPageX, 6, CPU::lsr),
-    Opcode::new(0x4e, "LSR", AddressingMode::Absolute, 6, CPU::lsr),
-    Opcode::new(0x5e, "LSR", AddressingMode::AbsoluteX, 7, CPU::lsr),
-    Opcode::new(0x24, "BIT", AddressingMode::ZeroPage, 3, CPU::bit),
-    Opcode::new(0x2c, "BIT", AddressingMode::Absolute, 4, CPU::bit),
-    Opcode::new(0x4c, "JMP", AddressingMode::Absolute, 3, CPU::jmp),
-    Opcode::new(0x6c, "JMP", AddressingMode::Indirect, 5, CPU::jmp),
-    Opcode::new(0x48, "PHA", AddressingMode::None, 3, CPU::pha),
-    Opcode::new(0x68, "PLA", AddressingMode::None, 4, CPU::pla),
-    Opcode::new(0x08, "PHP", AddressingMode::None, 3, CPU::php),
-    Opcode::new(0x28, "PLP", AddressingMode::None, 4, CPU::plp),
-    Opcode::new(0xa8, "TAY", AddressingMode::None, 2, CPU::tay),
-    Opcode::new(0x98, "TYA", AddressingMode::None, 2, CPU::tya),
-    Opcode::new(0x40, "RTI", AddressingMode::None, 6, CPU::rti),
-    Opcode::new(0x0a, "ASL", AddressingMode::Accumulator, 2, CPU::asl),
-    Opcode::new(0x06, "ASL", AddressingMode::ZeroPage, 5, CPU::asl),
-    Opcode::new(0x16, "ASL", AddressingMode::ZeroPageX, 6, CPU::asl),
-    Opcode::new(0x0e, "ASL", AddressingMode::Absolute, 6, CPU::asl),
-    Opcode::new(0x1e, "ASL", AddressingMode::AbsoluteX, 7, CPU::asl),
-    Opcode::new(0x2a, "ROL", AddressingMode::Accumulator, 2, CPU::rol),
-    Opcode::new(0x26, "ROL", AddressingMode::ZeroPage, 5, CPU::rol),
-    Opcode::new(0x36, "ROL", AddressingMode::ZeroPageX, 6, CPU::rol),
-    Opcode::new(0x2e, "ROL", AddressingMode::Absolute, 6, CPU::rol),
-    Opcode::new(0x3e, "ROL", AddressingMode::AbsoluteX, 7, CPU::rol),
-    Opcode::new(0x6a, "ROR", AddressingMode::Accumulator, 2, CPU::ror),
-    Opcode::new(0x66, "ROR", AddressingMode::ZeroPage, 5, CPU::ror),
-    Opcode::new(0x76, "ROR", AddressingMode::ZeroPageX, 6, CPU::ror),
-    Opcode::new(0x6e, "ROR", AddressingMode::Absolute, 6, CPU::ror),
-    Opcode::new(0x7e, "ROR", AddressingMode::AbsoluteX, 7, CPU::ror),
-    Opcode::new(0x1a, "*NOP", AddressingMode::None, 2, CPU::nop),
-    Opcode::new(0x3a, "*NOP", AddressingMode::None, 2, CPU::nop),
-    Opcode::new(0x5a, "*NOP", AddressingMode::None, 2, CPU::nop),
-    Opcode::new(0x7a, "*NOP", AddressingMode::None, 2, CPU::nop),
-    Opcode::new(0xda, "*NOP", AddressingMode::None, 2, CPU::nop),
-    Opcode::new(0xfa, "*NOP", AddressingMode::None, 2, CPU::nop),
-    Opcode::new(0x04, "*NOP", AddressingMode::ZeroPage, 3, CPU::nop),
-    Opcode::new(0x14, "*NOP", AddressingMode::ZeroPageX, 4, CPU::nop),
-    Opcode::new(0x34, "*NOP", AddressingMode::ZeroPageX, 4, CPU::nop),
-    Opcode::new(0x44, "*NOP", AddressingMode::ZeroPage, 3, CPU::nop),
-    Opcode::new(0x54, "*NOP", AddressingMode::ZeroPageX, 4, CPU::nop),
-    Opcode::new(0x64, "*NOP", AddressingMode::ZeroPage, 3, CPU::nop),
-    Opcode::new(0x74, "*NOP", AddressingMode::ZeroPageX, 4, CPU::nop),
-    Opcode::new(0x80, "*NOP", AddressingMode::Immediate, 2, CPU::nop),
-    Opcode::new(0x82, "*NOP", AddressingMode::Immediate, 2, CPU::nop),
-    Opcode::new(0x89, "*NOP", AddressingMode::Immediate, 2, CPU::nop),
-    Opcode::new(0xc2, "*NOP", AddressingMode::Immediate, 2, CPU::nop),
-    Opcode::new(0xd4, "*NOP", AddressingMode::ZeroPageX, 4, CPU::nop),
-    Opcode::new(0xe2, "*NOP", AddressingMode::Immediate, 2, CPU::nop),
-    Opcode::new(0xf4, "*NOP", AddressingMode::ZeroPageX, 4, CPU::nop),
-    Opcode::new(0x0c, "*NOP", AddressingMode::Absolute, 4, CPU::nop),
-    Opcode::new(0x1c, "*NOP", AddressingMode::AbsoluteX, 4, CPU::nop),
-    Opcode::new(0x3c, "*NOP", AddressingMode::AbsoluteX, 4, CPU::nop),
-    Opcode::new(0x5c, "*NOP", AddressingMode::AbsoluteX, 4, CPU::nop),
-    Opcode::new(0x7c, "*NOP", AddressingMode::AbsoluteX, 4, CPU::nop),
-    Opcode::new(0xdc, "*NOP", AddressingMode::AbsoluteX, 4, CPU::nop),
-    Opcode::new(0xfc, "*NOP", AddressingMode::AbsoluteX, 4, CPU::nop),
-    Opcode::new(0xa7, "*LAX", AddressingMode::ZeroPage, 3, CPU::lax),
-    Opcode::new(0xb7, "*LAX", AddressingMode::ZeroPageY, 4, CPU::lax),
-    Opcode::new(0xaf, "*LAX", AddressingMode::Absolute, 4, CPU::lax),
-    Opcode::new(0xbf, "*LAX", AddressingMode::AbsoluteY, 4, CPU::lax),
-    Opcode::new(0xa3, "*LAX", AddressingMode::IndirectX, 6, CPU::lax),
-    Opcode::new(0xb3, "*LAX", AddressingMode::IndirectY, 5, CPU::lax),
-    Opcode::new(0x87, "*SAX", AddressingMode::ZeroPage, 3, CPU::sax),
-    Opcode::new(0x97, "*SAX", AddressingMode::ZeroPageY, 4, CPU::sax),
-    Opcode::new(0x83, "*SAX", AddressingMode::IndirectX, 6, CPU::sax),
-    Opcode::new(0x8f, "*SAX", AddressingMode::Absolute, 4, CPU::sax),
-    Opcode::new(0xeb, "*SBC", AddressingMode::Immediate, 2, CPU::sbc),
-    Opcode::new(0xc7, "*DCP", AddressingMode::ZeroPage, 5, CPU::dcp),
-    Opcode::new(0xd7, "*DCP", AddressingMode::ZeroPageX, 6, CPU::dcp),
-    Opcode::new(0xcf, "*DCP", AddressingMode::Absolute, 6, CPU::dcp),
-    Opcode::new(0xdf, "*DCP", AddressingMode::AbsoluteX, 7, CPU::dcp),
-    Opcode::new(0xdb, "*DCP", AddressingMode::AbsoluteY, 7, CPU::dcp),
-    Opcode::new(0xc3, "*DCP", AddressingMode::IndirectX, 8, CPU::dcp),
-    Opcode::new(0xd3, "*DCP", AddressingMode::IndirectY, 8, CPU::dcp),
-    Opcode::new(0xe7, "*ISB", AddressingMode::ZeroPage, 5, CPU::isb),
-    Opcode::new(0xf7, "*ISB", AddressingMode::ZeroPageX, 6, CPU::isb),
-    Opcode::new(0xef, "*ISB", AddressingMode::Absolute, 6, CPU::isb),
-    Opcode::new(0xff, "*ISB", AddressingMode::AbsoluteX, 7, CPU::isb),
-    Opcode::new(0xfb, "*ISB", AddressingMode::AbsoluteY, 7, CPU::isb),
-    Opcode::new(0xe3, "*ISB", AddressingMode::IndirectX, 8, CPU::isb),
-    Opcode::new(0xf3, "*ISB", AddressingMode::IndirectY, 8, CPU::isb),
-    Opcode::new(0x07, "*SLO", AddressingMode::ZeroPage, 5, CPU::slo),
-    Opcode::new(0x17, "*SLO", AddressingMode::ZeroPageX, 6, CPU::slo),
-    Opcode::new(0x0f, "*SLO", AddressingMode::Absolute, 6, CPU::slo),
-    Opcode::new(0x1f, "*SLO", AddressingMode::AbsoluteX, 7, CPU::slo),
-    Opcode::new(0x1b, "*SLO", AddressingMode::AbsoluteY, 7, CPU::slo),
-    Opcode::new(0x03, "*SLO", AddressingMode::IndirectX, 8, CPU::slo),
-    Opcode::new(0x13, "*SLO", AddressingMode::IndirectY, 8, CPU::slo),
-    Opcode::new(0x27, "*RLA", AddressingMode::ZeroPage, 5, CPU::rla),
-    Opcode::new(0x37, "*RLA", AddressingMode::ZeroPageX, 6, CPU::rla),
-    Opcode::new(0x2f, "*RLA", AddressingMode::Absolute, 6, CPU::rla),
-    Opcode::new(0x3f, "*RLA", AddressingMode::AbsoluteX, 7, CPU::rla),
-    Opcode::new(0x3b, "*RLA", AddressingMode::AbsoluteY, 7, CPU::rla),
-    Opcode::new(0x23, "*RLA", AddressingMode::IndirectX, 8, CPU::rla),
-    Opcode::new(0x33, "*RLA", AddressingMode::IndirectY, 8, CPU::rla),
-    Opcode::new(0x47, "*SRE", AddressingMode::ZeroPage, 5, CPU::sre),
-    Opcode::new(0x57, "*SRE", AddressingMode::ZeroPageX, 6, CPU::sre),
-    Opcode::new(0x4f, "*SRE", AddressingMode::Absolute, 6, CPU::sre),
-    Opcode::new(0x5f, "*SRE", AddressingMode::AbsoluteX, 7, CPU::sre),
-    Opcode::new(0x5b, "*SRE", AddressingMode::AbsoluteY, 7, CPU::sre),
-    Opcode::new(0x43, "*SRE", AddressingMode::IndirectX, 8, CPU::sre),
-    Opcode::new(0x53, "*SRE", AddressingMode::IndirectY, 8, CPU::sre),
-    Opcode::new(0x67, "*RRA", AddressingMode::ZeroPage, 5, CPU::rra),
-    Opcode::new(0x77, "*RRA", AddressingMode::ZeroPageX, 6, CPU::rra),
-    Opcode::new(0x6f, "*RRA", AddressingMode::Absolute, 6, CPU::rra),
-    Opcode::new(0x7f, "*RRA", AddressingMode::AbsoluteX, 7, CPU::rra),
-    Opcode::new(0x7b, "*RRA", AddressingMode::AbsoluteY, 7, CPU::rra),
-    Opcode::new(0x63, "*RRA", AddressingMode::IndirectX, 8, CPU::rra),
-    Opcode::new(0x73, "*RRA", AddressingMode::IndirectY, 8, CPU::rra),
+    Opcode::new(0x00, "BRK", AddressingMode::None, 7, false, CPU::brk),
+    Opcode::new(0xea, "NOP", AddressingMode::None, 2, false, CPU::nop),
+    Opcode::new(0x18, "CLC", AddressingMode::None, 2, false, CPU::clc),
+    Opcode::new(0x38, "SEC", AddressingMode::None, 2, false, CPU::sec),
+    Opcode::new(0xd8, "CLD", AddressingMode::None, 2, false, CPU::cld),
+    Opcode::new(0xf8, "SED", AddressingMode::None, 2, false, CPU::sed),
+    Opcode::new(0xb8, "CLV", AddressingMode::None, 2, false, CPU::clv),
+    Opcode::new(0x58, "CLI", AddressingMode::None, 2, false, CPU::cli),
+    Opcode::new(0x78, "SEI", AddressingMode::None, 2, false, CPU::sei),
+    Opcode::new(0xaa, "TAX", AddressingMode::None, 2, false, CPU::tax),
+    Opcode::new(0x8a, "TXA", AddressingMode::None, 2, false, CPU::txa),
+    Opcode::new(0x9a, "TXS", AddressingMode::None, 2, false, CPU::txs),
+    Opcode::new(0xba, "TSX", AddressingMode::None, 2, false, CPU::tsx),
+    Opcode::new(0x20, "JSR", AddressingMode::Absolute, 6, false, CPU::jsr),
+    Opcode::new(0xe8, "INX", AddressingMode::None, 2, false, CPU::inx),
+    Opcode::new(0xc8, "INY", AddressingMode::None, 2, false, CPU::iny),
+    Opcode::new(0x60, "RTS", AddressingMode::None, 6, false, CPU::rts),
+    Opcode::new(0xe6, "INC", AddressingMode::ZeroPage, 5, false, CPU::inc),
+    Opcode::new(0xf6, "INC", AddressingMode::ZeroPageX, 6, false, CPU::inc),
+    Opcode::new(0xee, "INC", AddressingMode::Absolute, 6, false, CPU::inc),
+    Opcode::new(0xfe, "INC", AddressingMode::AbsoluteX, 7, false, CPU::inc),
+    Opcode::new(0xa9, "LDA", AddressingMode::Immediate, 2, false, CPU::lda),
+    Opcode::new(0xa5, "LDA", AddressingMode::ZeroPage, 3, false, CPU::lda),
+    Opcode::new(0xb5, "LDA", AddressingMode::ZeroPageX, 4, false, CPU::lda),
+    Opcode::new(0xad, "LDA", AddressingMode::Absolute, 4, false, CPU::lda),
+    Opcode::new(0xbd, "LDA", AddressingMode::AbsoluteX, 4, true, CPU::lda),
+    Opcode::new(0xb9, "LDA", AddressingMode::AbsoluteY, 4, true, CPU::lda),
+    Opcode::new(0xa1, "LDA", AddressingMode::IndirectX, 6, false, CPU::lda),
+    Opcode::new(0xb1, "LDA", AddressingMode::IndirectY, 5, true, CPU::lda),
+    Opcode::new(0xa2, "LDX", AddressingMode::Immediate, 2, false, CPU::ldx),
+    Opcode::new(0xa6, "LDX", AddressingMode::ZeroPage, 3, false, CPU::ldx),
+    Opcode::new(0xb6, "LDX", AddressingMode::ZeroPageY, 4, false, CPU::ldx),
+    Opcode::new(0xae, "LDX", AddressingMode::Absolute, 4, false, CPU::ldx),
+    Opcode::new(0xbe, "LDX", AddressingMode::AbsoluteY, 4, true, CPU::ldx),
+    Opcode::new(0xa0, "LDY", AddressingMode::Immediate, 2, false, CPU::ldy),
+    Opcode::new(0xa4, "LDY", AddressingMode::ZeroPage, 3, false, CPU::ldy),
+    Opcode::new(0xb4, "LDY", AddressingMode::ZeroPageX, 4, false, CPU::ldy),
+    Opcode::new(0xac, "LDY", AddressingMode::Absolute, 4, false, CPU::ldy),
+    Opcode::new(0xbc, "LDY", AddressingMode::AbsoluteX, 4, true, CPU::ldy),
+    Opcode::new(0x85, "STA", AddressingMode::ZeroPage, 3, false, CPU::sta),
+    Opcode::new(0x95, "STA", AddressingMode::ZeroPageX, 4, false, CPU::sta),
+    Opcode::new(0x8d, "STA", AddressingMode::Absolute, 4, false, CPU::sta),
+    Opcode::new(0x9d, "STA", AddressingMode::AbsoluteX, 5, false, CPU::sta),
+    Opcode::new(0x99, "STA", AddressingMode::AbsoluteY, 5, false, CPU::sta),
+    Opcode::new(0x81, "STA", AddressingMode::IndirectX, 6, false, CPU::sta),
+    Opcode::new(0x91, "STA", AddressingMode::IndirectY, 6, false, CPU::sta),
+    Opcode::new(0x86, "STX", AddressingMode::ZeroPage, 3, false, CPU::stx),
+    Opcode::new(0x96, "STX", AddressingMode::ZeroPageY, 4, false, CPU::stx),
+    Opcode::new(0x8e, "STX", AddressingMode::Absolute, 4, false, CPU::stx),
+    Opcode::new(0x84, "STY", AddressingMode::ZeroPage, 3, false, CPU::sty),
+    Opcode::new(0x94, "STY", AddressingMode::ZeroPageX, 4, false, CPU::sty),
+    Opcode::new(0x8c, "STY", AddressingMode::Absolute, 4, false, CPU::sty),
+    Opcode::new(0x29, "AND", AddressingMode::Immediate, 2, false, CPU::and),
+    Opcode::new(0x25, "AND", AddressingMode::ZeroPage, 3, false, CPU::and),
+    Opcode::new(0x35, "AND", AddressingMode::ZeroPageX, 4, false, CPU::and),
+    Opcode::new(0x2D, "AND", AddressingMode::Absolute, 4, false, CPU::and),
+    Opcode::new(0x3D, "AND", AddressingMode::AbsoluteX, 4, true, CPU::and),
+    Opcode::new(0x39, "AND", AddressingMode::AbsoluteY, 4, true, CPU::and),
+    Opcode::new(0x21, "AND", AddressingMode::IndirectX, 6, false, CPU::and),
+    Opcode::new(0x31, "AND", AddressingMode::IndirectY, 5, true, CPU::and),
+    Opcode::new(0x49, "EOR", AddressingMode::Immediate, 2, false, CPU::eor),
+    Opcode::new(0x45, "EOR", AddressingMode::ZeroPage, 3, false, CPU::eor),
+    Opcode::new(0x55, "EOR", AddressingMode::ZeroPageX, 4, false, CPU::eor),
+    Opcode::new(0x4D, "EOR", AddressingMode::Absolute, 4, false, CPU::eor),
+    Opcode::new(0x5D, "EOR", AddressingMode::AbsoluteX, 4, true, CPU::eor),
+    Opcode::new(0x59, "EOR", AddressingMode::AbsoluteY, 4, true, CPU::eor),
+    Opcode::new(0x41, "EOR", AddressingMode::IndirectX, 6, false, CPU::eor),
+    Opcode::new(0x51, "EOR", AddressingMode::IndirectY, 5, true, CPU::eor),
+    Opcode::new(0x09, "ORA", AddressingMode::Immediate, 2, false, CPU::ora),
+    Opcode::new(0x05, "ORA", AddressingMode::ZeroPage, 3, false, CPU::ora),
+    Opcode::new(0x15, "ORA", AddressingMode::ZeroPageX, 4, false, CPU::ora),
+    Opcode::new(0x0d, "ORA", AddressingMode::Absolute, 4, false, CPU::ora),
+    Opcode::new(0x1d, "ORA", AddressingMode::AbsoluteX, 4, true, CPU::ora),
+    Opcode::new(0x19, "ORA", AddressingMode::AbsoluteY, 4, true, CPU::ora),
+    Opcode::new(0x01, "ORA", AddressingMode::IndirectX, 6, false, CPU::ora),
+    Opcode::new(0x11, "ORA", AddressingMode::IndirectY, 5, true, CPU::ora),
+    Opcode::new(0x69, "ADC", AddressingMode::Immediate, 2, false, CPU::adc),
+    Opcode::new(0x65, "ADC", AddressingMode::ZeroPage, 3, false, CPU::adc),
+    Opcode::new(0x75, "ADC", AddressingMode::ZeroPageX, 4, false, CPU::adc),
+    Opcode::new(0x6d, "ADC", AddressingMode::Absolute, 4, false, CPU::adc),
+    Opcode::new(0x7d, "ADC", AddressingMode::AbsoluteX, 4, true, CPU::adc),
+    Opcode::new(0x79, "ADC", AddressingMode::AbsoluteY, 4, true, CPU::adc),
+    Opcode::new(0x61, "ADC", AddressingMode::IndirectX, 6, false, CPU::adc),
+    Opcode::new(0x71, "ADC", AddressingMode::IndirectY, 5, true, CPU::adc),
+    Opcode::new(0xe9, "SBC", AddressingMode::Immediate, 2, false, CPU::sbc),
+    Opcode::new(0xe5, "SBC", AddressingMode::ZeroPage, 3, false, CPU::sbc),
+    Opcode::new(0xf5, "SBC", AddressingMode::ZeroPageX, 4, false, CPU::sbc),
+    Opcode::new(0xed, "SBC", AddressingMode::Absolute, 4, false, CPU::sbc),
+    Opcode::new(0xfd, "SBC", AddressingMode::AbsoluteX, 4, true, CPU::sbc),
+    Opcode::new(0xf9, "SBC", AddressingMode::AbsoluteY, 4, true, CPU::sbc),
+    Opcode::new(0xe1, "SBC", AddressingMode::IndirectX, 6, false, CPU::sbc),
+    Opcode::new(0xf1, "SBC", AddressingMode::IndirectY, 5, true, CPU::sbc),
+    Opcode::new(0xc9, "CMP", AddressingMode::Immediate, 2, false, CPU::cmp),
+    Opcode::new(0xc5, "CMP", AddressingMode::ZeroPage, 3, false, CPU::cmp),
+    Opcode::new(0xd5, "CMP", AddressingMode::ZeroPageX, 4, false, CPU::cmp),
+    Opcode::new(0xcd, "CMP", AddressingMode::Absolute, 4, false, CPU::cmp),
+    Opcode::new(0xdd, "CMP", AddressingMode::AbsoluteX, 4, true, CPU::cmp),
+    Opcode::new(0xd9, "CMP", AddressingMode::AbsoluteY, 4, true, CPU::cmp),
+    Opcode::new(0xc1, "CMP", AddressingMode::IndirectX, 6, false, CPU::cmp),
+    Opcode::new(0xd1, "CMP", AddressingMode::IndirectY, 5, true, CPU::cmp),
+    Opcode::new(0xe0, "CPX", AddressingMode::Immediate, 2, false, CPU::cpx),
+    Opcode::new(0xe4, "CPX", AddressingMode::ZeroPage, 3, false, CPU::cpx),
+    Opcode::new(0xec, "CPX", AddressingMode::Absolute, 4, false, CPU::cpx),
+    Opcode::new(0xc0, "CPY", AddressingMode::Immediate, 2, false, CPU::cpy),
+    Opcode::new(0xc4, "CPY", AddressingMode::ZeroPage, 3, false, CPU::cpy),
+    Opcode::new(0xcc, "CPY", AddressingMode::Absolute, 4, false, CPU::cpy),
+    Opcode::new(0xf0, "BEQ", AddressingMode::Relative, 2, true, CPU::beq),
+    Opcode::new(0xd0, "BNE", AddressingMode::Relative, 2, false, CPU::bne),
+    Opcode::new(0xb0, "BCS", AddressingMode::Relative, 2, false, CPU::bcs),
+    Opcode::new(0x90, "BCC", AddressingMode::Relative, 2, false, CPU::bcc),
+    Opcode::new(0x10, "BPL", AddressingMode::Relative, 2, false, CPU::bpl),
+    Opcode::new(0x30, "BMI", AddressingMode::Relative, 2, false, CPU::bmi),
+    Opcode::new(0x50, "BVC", AddressingMode::Relative, 2, false, CPU::bvc),
+    Opcode::new(0x70, "BVS", AddressingMode::Relative, 2, false, CPU::bvs),
+    Opcode::new(0xc6, "DEC", AddressingMode::ZeroPage, 5, false, CPU::dec),
+    Opcode::new(0xd6, "DEC", AddressingMode::ZeroPageX, 6, false, CPU::dec),
+    Opcode::new(0xce, "DEC", AddressingMode::Absolute, 6, false, CPU::dec),
+    Opcode::new(0xde, "DEC", AddressingMode::AbsoluteX, 7, false, CPU::dec),
+    Opcode::new(0xca, "DEX", AddressingMode::None, 2, false, CPU::dex),
+    Opcode::new(0x88, "DEY", AddressingMode::None, 2, false, CPU::dey),
+    Opcode::new(0x4a, "LSR", AddressingMode::Accumulator, 2, false, CPU::lsr),
+    Opcode::new(0x46, "LSR", AddressingMode::ZeroPage, 5, false, CPU::lsr),
+    Opcode::new(0x56, "LSR", AddressingMode::ZeroPageX, 6, false, CPU::lsr),
+    Opcode::new(0x4e, "LSR", AddressingMode::Absolute, 6, false, CPU::lsr),
+    Opcode::new(0x5e, "LSR", AddressingMode::AbsoluteX, 7, false, CPU::lsr),
+    Opcode::new(0x24, "BIT", AddressingMode::ZeroPage, 3, false, CPU::bit),
+    Opcode::new(0x2c, "BIT", AddressingMode::Absolute, 4, false, CPU::bit),
+    Opcode::new(0x4c, "JMP", AddressingMode::Absolute, 3, false, CPU::jmp),
+    Opcode::new(0x6c, "JMP", AddressingMode::Indirect, 5, false, CPU::jmp),
+    Opcode::new(0x48, "PHA", AddressingMode::None, 3, false, CPU::pha),
+    Opcode::new(0x68, "PLA", AddressingMode::None, 4, false, CPU::pla),
+    Opcode::new(0x08, "PHP", AddressingMode::None, 3, false, CPU::php),
+    Opcode::new(0x28, "PLP", AddressingMode::None, 4, false, CPU::plp),
+    Opcode::new(0xa8, "TAY", AddressingMode::None, 2, false, CPU::tay),
+    Opcode::new(0x98, "TYA", AddressingMode::None, 2, false, CPU::tya),
+    Opcode::new(0x40, "RTI", AddressingMode::None, 6, false, CPU::rti),
+    Opcode::new(0x0a, "ASL", AddressingMode::Accumulator, 2, false, CPU::asl),
+    Opcode::new(0x06, "ASL", AddressingMode::ZeroPage, 5, false, CPU::asl),
+    Opcode::new(0x16, "ASL", AddressingMode::ZeroPageX, 6, false, CPU::asl),
+    Opcode::new(0x0e, "ASL", AddressingMode::Absolute, 6, false, CPU::asl),
+    Opcode::new(0x1e, "ASL", AddressingMode::AbsoluteX, 7, false, CPU::asl),
+    Opcode::new(0x2a, "ROL", AddressingMode::Accumulator, 2, false, CPU::rol),
+    Opcode::new(0x26, "ROL", AddressingMode::ZeroPage, 5, false, CPU::rol),
+    Opcode::new(0x36, "ROL", AddressingMode::ZeroPageX, 6, false, CPU::rol),
+    Opcode::new(0x2e, "ROL", AddressingMode::Absolute, 6, false, CPU::rol),
+    Opcode::new(0x3e, "ROL", AddressingMode::AbsoluteX, 7, false, CPU::rol),
+    Opcode::new(0x6a, "ROR", AddressingMode::Accumulator, 2, false, CPU::ror),
+    Opcode::new(0x66, "ROR", AddressingMode::ZeroPage, 5, false, CPU::ror),
+    Opcode::new(0x76, "ROR", AddressingMode::ZeroPageX, 6, false, CPU::ror),
+    Opcode::new(0x6e, "ROR", AddressingMode::Absolute, 6, false, CPU::ror),
+    Opcode::new(0x7e, "ROR", AddressingMode::AbsoluteX, 7, false, CPU::ror),
+    Opcode::new(0x1a, "*NOP", AddressingMode::None, 2, false, CPU::nop),
+    Opcode::new(0x3a, "*NOP", AddressingMode::None, 2, false, CPU::nop),
+    Opcode::new(0x5a, "*NOP", AddressingMode::None, 2, false, CPU::nop),
+    Opcode::new(0x7a, "*NOP", AddressingMode::None, 2, false, CPU::nop),
+    Opcode::new(0xda, "*NOP", AddressingMode::None, 2, false, CPU::nop),
+    Opcode::new(0xfa, "*NOP", AddressingMode::None, 2, false, CPU::nop),
+    Opcode::new(0x04, "*NOP", AddressingMode::ZeroPage, 3, false, CPU::nop),
+    Opcode::new(0x14, "*NOP", AddressingMode::ZeroPageX, 4, false, CPU::nop),
+    Opcode::new(0x34, "*NOP", AddressingMode::ZeroPageX, 4, false, CPU::nop),
+    Opcode::new(0x44, "*NOP", AddressingMode::ZeroPage, 3, false, CPU::nop),
+    Opcode::new(0x54, "*NOP", AddressingMode::ZeroPageX, 4, false, CPU::nop),
+    Opcode::new(0x64, "*NOP", AddressingMode::ZeroPage, 3, false, CPU::nop),
+    Opcode::new(0x74, "*NOP", AddressingMode::ZeroPageX, 4, false, CPU::nop),
+    Opcode::new(0x80, "*NOP", AddressingMode::Immediate, 2, false, CPU::nop),
+    Opcode::new(0x82, "*NOP", AddressingMode::Immediate, 2, false, CPU::nop),
+    Opcode::new(0x89, "*NOP", AddressingMode::Immediate, 2, false, CPU::nop),
+    Opcode::new(0xc2, "*NOP", AddressingMode::Immediate, 2, false, CPU::nop),
+    Opcode::new(0xd4, "*NOP", AddressingMode::ZeroPageX, 4, false, CPU::nop),
+    Opcode::new(0xe2, "*NOP", AddressingMode::Immediate, 2, false, CPU::nop),
+    Opcode::new(0xf4, "*NOP", AddressingMode::ZeroPageX, 4, false, CPU::nop),
+    Opcode::new(0x0c, "*NOP", AddressingMode::Absolute, 4, false, CPU::nop),
+    Opcode::new(0x1c, "*NOP", AddressingMode::AbsoluteX, 4, true, CPU::nop),
+    Opcode::new(0x3c, "*NOP", AddressingMode::AbsoluteX, 4, true, CPU::nop),
+    Opcode::new(0x5c, "*NOP", AddressingMode::AbsoluteX, 4, true, CPU::nop),
+    Opcode::new(0x7c, "*NOP", AddressingMode::AbsoluteX, 4, true, CPU::nop),
+    Opcode::new(0xdc, "*NOP", AddressingMode::AbsoluteX, 4, true, CPU::nop),
+    Opcode::new(0xfc, "*NOP", AddressingMode::AbsoluteX, 4, true, CPU::nop),
+    Opcode::new(0xa7, "*LAX", AddressingMode::ZeroPage, 3, false, CPU::lax),
+    Opcode::new(0xb7, "*LAX", AddressingMode::ZeroPageY, 4, false, CPU::lax),
+    Opcode::new(0xaf, "*LAX", AddressingMode::Absolute, 4, false, CPU::lax),
+    Opcode::new(0xbf, "*LAX", AddressingMode::AbsoluteY, 4, true, CPU::lax),
+    Opcode::new(0xa3, "*LAX", AddressingMode::IndirectX, 6, false, CPU::lax),
+    Opcode::new(0xb3, "*LAX", AddressingMode::IndirectY, 5, true, CPU::lax),
+    Opcode::new(0x87, "*SAX", AddressingMode::ZeroPage, 3, false, CPU::sax),
+    Opcode::new(0x97, "*SAX", AddressingMode::ZeroPageY, 4, false, CPU::sax),
+    Opcode::new(0x83, "*SAX", AddressingMode::IndirectX, 6, false, CPU::sax),
+    Opcode::new(0x8f, "*SAX", AddressingMode::Absolute, 4, false, CPU::sax),
+    Opcode::new(0xeb, "*SBC", AddressingMode::Immediate, 2, false, CPU::sbc),
+    Opcode::new(0xc7, "*DCP", AddressingMode::ZeroPage, 5, false, CPU::dcp),
+    Opcode::new(0xd7, "*DCP", AddressingMode::ZeroPageX, 6, false, CPU::dcp),
+    Opcode::new(0xcf, "*DCP", AddressingMode::Absolute, 6, false, CPU::dcp),
+    Opcode::new(0xdf, "*DCP", AddressingMode::AbsoluteX, 7, false, CPU::dcp),
+    Opcode::new(0xdb, "*DCP", AddressingMode::AbsoluteY, 7, false, CPU::dcp),
+    Opcode::new(0xc3, "*DCP", AddressingMode::IndirectX, 8, false, CPU::dcp),
+    Opcode::new(0xd3, "*DCP", AddressingMode::IndirectY, 8, false, CPU::dcp),
+    Opcode::new(0xe7, "*ISB", AddressingMode::ZeroPage, 5, false, CPU::isb),
+    Opcode::new(0xf7, "*ISB", AddressingMode::ZeroPageX, 6, false, CPU::isb),
+    Opcode::new(0xef, "*ISB", AddressingMode::Absolute, 6, false, CPU::isb),
+    Opcode::new(0xff, "*ISB", AddressingMode::AbsoluteX, 7, false, CPU::isb),
+    Opcode::new(0xfb, "*ISB", AddressingMode::AbsoluteY, 7, false, CPU::isb),
+    Opcode::new(0xe3, "*ISB", AddressingMode::IndirectX, 8, false, CPU::isb),
+    Opcode::new(0xf3, "*ISB", AddressingMode::IndirectY, 8, false, CPU::isb),
+    Opcode::new(0x07, "*SLO", AddressingMode::ZeroPage, 5, false, CPU::slo),
+    Opcode::new(0x17, "*SLO", AddressingMode::ZeroPageX, 6, false, CPU::slo),
+    Opcode::new(0x0f, "*SLO", AddressingMode::Absolute, 6, false, CPU::slo),
+    Opcode::new(0x1f, "*SLO", AddressingMode::AbsoluteX, 7, false, CPU::slo),
+    Opcode::new(0x1b, "*SLO", AddressingMode::AbsoluteY, 7, false, CPU::slo),
+    Opcode::new(0x03, "*SLO", AddressingMode::IndirectX, 8, false, CPU::slo),
+    Opcode::new(0x13, "*SLO", AddressingMode::IndirectY, 8, false, CPU::slo),
+    Opcode::new(0x27, "*RLA", AddressingMode::ZeroPage, 5, false, CPU::rla),
+    Opcode::new(0x37, "*RLA", AddressingMode::ZeroPageX, 6, false, CPU::rla),
+    Opcode::new(0x2f, "*RLA", AddressingMode::Absolute, 6, false, CPU::rla),
+    Opcode::new(0x3f, "*RLA", AddressingMode::AbsoluteX, 7, false, CPU::rla),
+    Opcode::new(0x3b, "*RLA", AddressingMode::AbsoluteY, 7, false, CPU::rla),
+    Opcode::new(0x23, "*RLA", AddressingMode::IndirectX, 8, false, CPU::rla),
+    Opcode::new(0x33, "*RLA", AddressingMode::IndirectY, 8, false, CPU::rla),
+    Opcode::new(0x47, "*SRE", AddressingMode::ZeroPage, 5, false, CPU::sre),
+    Opcode::new(0x57, "*SRE", AddressingMode::ZeroPageX, 6, false, CPU::sre),
+    Opcode::new(0x4f, "*SRE", AddressingMode::Absolute, 6, false, CPU::sre),
+    Opcode::new(0x5f, "*SRE", AddressingMode::AbsoluteX, 7, false, CPU::sre),
+    Opcode::new(0x5b, "*SRE", AddressingMode::AbsoluteY, 7, false, CPU::sre),
+    Opcode::new(0x43, "*SRE", AddressingMode::IndirectX, 8, false, CPU::sre),
+    Opcode::new(0x53, "*SRE", AddressingMode::IndirectY, 8, false, CPU::sre),
+    Opcode::new(0x67, "*RRA", AddressingMode::ZeroPage, 5, false, CPU::rra),
+    Opcode::new(0x77, "*RRA", AddressingMode::ZeroPageX, 6, false, CPU::rra),
+    Opcode::new(0x6f, "*RRA", AddressingMode::Absolute, 6, false, CPU::rra),
+    Opcode::new(0x7f, "*RRA", AddressingMode::AbsoluteX, 7, false, CPU::rra),
+    Opcode::new(0x7b, "*RRA", AddressingMode::AbsoluteY, 7, false, CPU::rra),
+    Opcode::new(0x63, "*RRA", AddressingMode::IndirectX, 8, false, CPU::rra),
+    Opcode::new(0x73, "*RRA", AddressingMode::IndirectY, 8, false, CPU::rra),
 ];
 
 static OP_CODES_MAP: LazyLock<HashMap<u8, Opcode>> =
@@ -277,6 +277,10 @@ pub struct Opcode {
     name: &'static str,
     mode: AddressingMode,
     cycles: u8,
+
+    /// Whether this opcode should take one more cycle to execute if page boundary is crossed.
+    page_cycles: bool,
+
     method: OpcodeMethod,
 }
 
@@ -286,6 +290,7 @@ impl Opcode {
         name: &'static str,
         mode: AddressingMode,
         cycles: u8,
+        page_cycles: bool,
         method: OpcodeMethod,
     ) -> Self {
         Self {
@@ -293,23 +298,38 @@ impl Opcode {
             name,
             mode,
             cycles,
+            page_cycles,
             method,
         }
+    }
+
+    const fn size(&self) -> usize {
+        self.mode.size()
     }
 }
 
 struct Operand {
     data: u16,
+    base: Option<u16>,
     mode: AddressingMode,
-    debug: String,
+    crossed_page: bool,
 }
 
 impl Operand {
-    const fn new(data: u16, mode: AddressingMode, debug: String) -> Self {
-        Self { data, mode, debug }
+    const fn new(data: u16, base: Option<u16>, mode: AddressingMode, crossed_page: bool) -> Self {
+        Self {
+            data,
+            base,
+            mode,
+            crossed_page,
+        }
     }
 
     fn get_data(&self, cpu: &mut CPU) -> u8 {
+        if self.crossed_page {
+            cpu.bus.tick(1);
+        }
+
         if self.mode == AddressingMode::Immediate || self.mode == AddressingMode::Accumulator {
             self.data as u8
         } else {
@@ -318,29 +338,18 @@ impl Operand {
     }
 }
 
-impl Display for Operand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.debug.fmt(f)
-    }
-}
-
 struct Instruction {
     opcode: Opcode,
-    operands: Operand,
-    debug: String,
+    operand: Operand,
 }
 
 impl Instruction {
-    fn new(opcode: Opcode, operands: Operand, debug: String) -> Self {
-        Self {
-            opcode,
-            operands,
-            debug,
-        }
+    fn new(opcode: Opcode, operand: Operand) -> Self {
+        Self { opcode, operand }
     }
 
     fn execute(&self, cpu: &mut CPU) {
-        (self.opcode.method)(cpu, &self.operands);
+        (self.opcode.method)(cpu, &self.operand);
         cpu.bus.tick(self.opcode.cycles);
     }
 }
@@ -360,6 +369,22 @@ pub enum AddressingMode {
     IndirectY,
     Accumulator,
     None,
+}
+
+impl AddressingMode {
+    const fn size(&self) -> usize {
+        match self {
+            Self::Indirect | Self::Absolute | Self::AbsoluteX | Self::AbsoluteY => 3,
+            Self::IndirectY
+            | Self::IndirectX
+            | Self::ZeroPageY
+            | Self::ZeroPageX
+            | Self::ZeroPage
+            | Self::Immediate
+            | Self::Relative => 2,
+            _ => 1,
+        }
+    }
 }
 
 pub struct CPU {
@@ -446,124 +471,6 @@ impl CPU {
             .set(StatusFlags::NEGATIVE, result & 0b1000_0000 != 0);
     }
 
-    fn get_operand(
-        &mut self,
-        mode: AddressingMode,
-        operand_bytes: &[u8],
-        is_jump: bool,
-    ) -> Operand {
-        let (data, debug) = match mode {
-            AddressingMode::None => (0, "".to_string()),
-            AddressingMode::Accumulator => (self.register_a.into(), "A".to_string()),
-            AddressingMode::Relative => {
-                let addr = self
-                    .program_counter
-                    .wrapping_add_signed((operand_bytes[0] as i8).into());
-                (addr, format!("${addr:04X}"))
-            }
-            AddressingMode::Immediate => {
-                let addr = operand_bytes[0] as u16;
-                (addr, format!("#${addr:02X}"))
-            }
-            AddressingMode::ZeroPage => {
-                let addr = operand_bytes[0] as u16;
-                (addr, format!("${addr:02X} = {:02X}", self.bus.read(addr)))
-            }
-            AddressingMode::ZeroPageX => {
-                let byte = operand_bytes[0];
-                let addr = byte.wrapping_add(self.register_x) as u16;
-                (
-                    addr,
-                    format!("${byte:02X},X @ {addr:02X} = {:02X}", self.bus.read(addr)),
-                )
-            }
-            AddressingMode::ZeroPageY => {
-                let byte = operand_bytes[0];
-                let addr = byte.wrapping_add(self.register_y) as u16;
-                (
-                    addr,
-                    format!("${byte:02X},Y @ {addr:02X} = {:02X}", self.bus.read(addr)),
-                )
-            }
-            AddressingMode::Absolute => {
-                let addr = u16::from_le_bytes(operand_bytes.try_into().unwrap());
-                let instruction = if is_jump {
-                    // && !(0x2000..0x3fff).contains(&addr)
-                    format!("${addr:04X}")
-                } else {
-                    format!("${addr:04X} = {:02X}", self.bus.read(addr))
-                };
-                (addr, instruction)
-            }
-            AddressingMode::AbsoluteX => {
-                let addr = u16::from_le_bytes(operand_bytes.try_into().unwrap())
-                    .wrapping_add(self.register_x.into());
-                (
-                    addr,
-                    format!(
-                        "${:04X},X @ {addr:04X} = {:02X}",
-                        u16::from_le_bytes(operand_bytes.try_into().unwrap()),
-                        self.bus.read(addr)
-                    ),
-                )
-            }
-            AddressingMode::AbsoluteY => {
-                let addr = u16::from_le_bytes(operand_bytes.try_into().unwrap())
-                    .wrapping_add(self.register_y.into());
-                (
-                    addr,
-                    format!(
-                        "${:04X},Y @ {addr:04X} = {:02X}",
-                        u16::from_le_bytes(operand_bytes.try_into().unwrap()),
-                        self.bus.read(addr)
-                    ),
-                )
-            }
-            AddressingMode::Indirect => {
-                let [a, b]: [u8; 2] = operand_bytes.try_into().unwrap();
-                let addr = u16::from_le_bytes([
-                    self.bus.read(u16::from_le_bytes([a, b])),
-                    self.bus.read(u16::from_le_bytes([a.wrapping_add(1), b])),
-                ]);
-                (
-                    addr,
-                    format!("(${:04X}) = {addr:04X}", u16::from_le_bytes([a, b])),
-                )
-            }
-            AddressingMode::IndirectX => {
-                let offset = operand_bytes[0];
-                let ptr = offset.wrapping_add(self.register_x);
-                let addr = self.peek_u16_zero_page(ptr);
-                (
-                    addr,
-                    format!(
-                        "(${offset:02X},X) @ {ptr:02X} = {addr:04X} = {:02X}",
-                        self.bus.read(addr)
-                    ),
-                )
-            }
-            AddressingMode::IndirectY => {
-                let byte = operand_bytes[0];
-                let base = self.peek_u16_zero_page(byte);
-                let (addr, page_crossed) = base.overflowing_add(self.register_y.into());
-
-                if page_crossed {
-                    self.bus.tick(2);
-                }
-
-                (
-                    addr,
-                    format!(
-                        "(${byte:02X}),Y = {base:04X} @ {addr:04X} = {:02X}",
-                        self.bus.read(addr)
-                    ),
-                )
-            }
-        };
-
-        Operand::new(data, mode, debug)
-    }
-
     fn interrupt_nmi(&mut self) {
         self.stack_push_u16(self.program_counter);
         self.stack_push_u8(self.status.bits());
@@ -602,15 +509,106 @@ impl CPU {
                 self.interrupt_nmi();
             }
 
-            let instruction = self.fetch_instruction();
-            instruction.execute(self);
-            callback(&instruction.debug);
+            let instrcution = self.fetch_instruction();
+            let debug = self.debug(&instrcution);
+
+            self.program_counter = self
+                .program_counter
+                .wrapping_add(instrcution.opcode.size() as u16);
+
+            instrcution.execute(self);
+
+            callback(&debug);
         }
     }
 
-    fn fetch_instruction(&mut self) -> Instruction {
-        let cpu_state = format!(
-            "A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}",
+    fn debug(&mut self, instruction: &Instruction) -> String {
+        let mut bytes: Vec<u8> = Vec::with_capacity(instruction.opcode.size());
+        for i in 0..instruction.opcode.size() {
+            bytes.push(self.bus.read(self.program_counter + i as u16))
+        }
+        let (_, operand_bytes) = bytes.split_at(1);
+
+        let operand = self.effective_address(&instruction.opcode, &operand_bytes);
+        let addr = operand.data;
+        let base = operand.base;
+
+        let operand = match instruction.opcode.mode {
+            AddressingMode::None => "".to_string(),
+            AddressingMode::Accumulator => "A".to_string(),
+            AddressingMode::Relative => format!("${addr:04X}"),
+            AddressingMode::Immediate => format!("#${addr:02X}"),
+            AddressingMode::ZeroPage => format!("${addr:02X} = {:02X}", self.bus.read(addr)),
+            AddressingMode::ZeroPageX => {
+                format!(
+                    "${:02X},X @ {addr:02X} = {:02X}",
+                    operand_bytes[0],
+                    self.bus.read(addr)
+                )
+            }
+            AddressingMode::ZeroPageY => {
+                format!(
+                    "${:02X},Y @ {addr:02X} = {:02X}",
+                    operand_bytes[0],
+                    self.bus.read(addr)
+                )
+            }
+            AddressingMode::Absolute => {
+                if instruction.opcode.name.starts_with("J") {
+                    // && !(0x2000..0x3fff).contains(&addr)
+                    format!("${addr:04X}")
+                } else {
+                    format!("${addr:04X} = {:02X}", self.bus.read(addr))
+                }
+            }
+            AddressingMode::AbsoluteX => {
+                format!(
+                    "${:04X},X @ {addr:04X} = {:02X}",
+                    base.unwrap(),
+                    self.bus.read(addr)
+                )
+            }
+            AddressingMode::AbsoluteY => {
+                format!(
+                    "${:04X},Y @ {addr:04X} = {:02X}",
+                    base.unwrap(),
+                    self.bus.read(addr)
+                )
+            }
+            AddressingMode::Indirect => {
+                format!(
+                    "(${:04X}) = {addr:04X}",
+                    u16::from_le_bytes(operand_bytes.try_into().unwrap())
+                )
+            }
+            AddressingMode::IndirectX => {
+                format!(
+                    "(${:02X},X) @ {:02X} = {addr:04X} = {:02X}",
+                    operand_bytes[0],
+                    base.unwrap(),
+                    self.bus.read(addr)
+                )
+            }
+            AddressingMode::IndirectY => {
+                format!(
+                    "(${:02X}),Y = {:04X} @ {addr:04X} = {:02X}",
+                    operand_bytes[0],
+                    base.unwrap(),
+                    self.bus.read(addr)
+                )
+            }
+        };
+
+        let hex = bytes
+            .iter()
+            .map(|byte| format!("{byte:02X}",))
+            .collect::<Vec<String>>()
+            .join(" ");
+
+        format!(
+            "{:04X}  {hex:<8} {:>4} {operand:<27} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} PPU:{:>3},{:>3} CYC:{}",
+            self.program_counter,
+            instruction.opcode.name,
             self.register_a,
             self.register_x,
             self.register_y,
@@ -618,56 +616,113 @@ impl CPU {
             self.stack_pointer,
             self.bus.ppu.scanline,
             self.bus.ppu.cycles,
-            self.bus.cycles,
-        );
+            self.bus.cycles
+        )
+    }
 
+    fn effective_address(&mut self, opcode: &Opcode, operand: &[u8]) -> Operand {
+        let (data, base, carry) = match opcode.mode {
+            AddressingMode::None => (0, None, false),
+            AddressingMode::Accumulator => (self.register_a.into(), None, false),
+            AddressingMode::Relative => {
+                let [lo, hi] = u16::to_le_bytes(self.program_counter + opcode.size() as u16);
+                let (addr_lo, carry) = lo.overflowing_add_signed(operand[0] as i8);
+                let addr = u16::from_le_bytes([addr_lo, hi.wrapping_add(carry.into())]);
+
+                (addr, None, carry)
+            }
+            AddressingMode::Immediate => {
+                let addr = operand[0] as u16;
+
+                (addr, None, false)
+            }
+            AddressingMode::ZeroPage => {
+                let addr = operand[0] as u16;
+
+                (addr, None, false)
+            }
+            AddressingMode::ZeroPageX => {
+                let byte = operand[0];
+                let addr = byte.wrapping_add(self.register_x) as u16;
+
+                (addr, None, false)
+            }
+            AddressingMode::ZeroPageY => {
+                let byte = operand[0];
+                let addr = byte.wrapping_add(self.register_y) as u16;
+
+                (addr, None, false)
+            }
+            AddressingMode::Absolute => {
+                let addr = u16::from_le_bytes(operand.to_owned().try_into().unwrap());
+
+                (addr, None, false)
+            }
+            AddressingMode::AbsoluteX => {
+                let [lo, hi]: [u8; 2] = operand.to_owned().try_into().unwrap();
+                let base = u16::from_le_bytes([lo, hi]);
+                let (lo, carry) = lo.overflowing_add(self.register_x.into());
+                let addr = u16::from_le_bytes([lo, hi.wrapping_add(carry.into())]);
+
+                (addr, Some(base), carry)
+            }
+            AddressingMode::AbsoluteY => {
+                let [lo, hi]: [u8; 2] = operand.to_owned().try_into().unwrap();
+                let base = u16::from_le_bytes([lo, hi]);
+                let (lo, carry) = lo.overflowing_add(self.register_y.into());
+                let addr = u16::from_le_bytes([lo, hi.wrapping_add(carry.into())]);
+
+                (addr, Some(base), carry)
+            }
+            AddressingMode::Indirect => {
+                let [a, b]: [u8; 2] = operand.to_owned().try_into().unwrap();
+                let addr = u16::from_le_bytes([
+                    self.bus.read(u16::from_le_bytes([a, b])),
+                    self.bus.read(u16::from_le_bytes([a.wrapping_add(1), b])),
+                ]);
+
+                (addr, None, false)
+            }
+            AddressingMode::IndirectX => {
+                let offset = operand[0];
+                let ptr = offset.wrapping_add(self.register_x);
+                let addr = self.peek_u16_zero_page(ptr);
+
+                (addr, Some(ptr.into()), false)
+            }
+            AddressingMode::IndirectY => {
+                let byte = operand[0];
+                let lo = self.bus.read(byte.into());
+                let hi = self.bus.read(byte.wrapping_add(1).into());
+                let base = u16::from_le_bytes([lo, hi]);
+                let (addr_lo, carry) = lo.overflowing_add(self.register_y);
+                let addr = u16::from_le_bytes([addr_lo, hi.wrapping_add(carry.into())]);
+
+                (addr, Some(base), carry)
+            }
+        };
+
+        Operand::new(data, base, opcode.mode, carry && opcode.page_cycles)
+    }
+
+    fn fetch_instruction(&mut self) -> Instruction {
         let opcode = self.bus.read(self.program_counter);
-
         let opcode = match OP_CODES_MAP.get(&opcode) {
             Some(opcode) => opcode.to_owned(),
             None => todo!("opcode {opcode:#02x?}"),
         };
 
-        let operands = match opcode.mode {
-            AddressingMode::Relative
-            | AddressingMode::Immediate
-            | AddressingMode::ZeroPage
-            | AddressingMode::ZeroPageX
-            | AddressingMode::ZeroPageY
-            | AddressingMode::Indirect
-            | AddressingMode::IndirectX
-            | AddressingMode::IndirectY => {
-                vec![self.bus.read(self.program_counter.wrapping_add(1))]
-            }
-            AddressingMode::Absolute | AddressingMode::AbsoluteX | AddressingMode::AbsoluteY => {
-                vec![
-                    self.bus.read(self.program_counter.wrapping_add(1)),
-                    self.bus.read(self.program_counter.wrapping_add(2)),
-                ]
-            }
-            _ => vec![],
-        };
+        let mut operand = Vec::with_capacity(opcode.size() - 1);
+        for i in 0..(opcode.size() - 1) {
+            operand.push(
+                self.bus
+                    .read(self.program_counter.wrapping_add(1 + i as u16)),
+            );
+        }
 
-        let bytes = [opcode.opcode]
-            .iter()
-            .chain(operands.iter())
-            .map(|byte| format!("{:02X}", byte))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let hex = format!("{:04X}  {bytes}", self.program_counter);
+        let operand = self.effective_address(&opcode, &operand);
 
-        self.program_counter = self.program_counter.wrapping_add(1 + operands.len() as u16);
-
-        let is_jump = opcode.name.starts_with("J");
-        let operand = self.get_operand(opcode.mode, &operands, is_jump);
-
-        let debug = if !opcode.name.starts_with("*") {
-            format!("{hex:<14}  {} {operand:<26}  {cpu_state}", opcode.name)
-        } else {
-            todo!()
-        };
-
-        Instruction::new(opcode, operand, debug)
+        Instruction::new(opcode, operand)
     }
 
     /// Force Break
@@ -745,7 +800,9 @@ impl CPU {
     }
 
     /// No operation
-    fn nop(&mut self, _operand: &Operand) {}
+    fn nop(&mut self, operand: &Operand) {
+        let _ = operand.get_data(self);
+    }
 
     /// Clear overflow flag
     fn clv(&mut self, _operand: &Operand) {
@@ -832,76 +889,62 @@ impl CPU {
         self.update_zero_and_negative_flags(value);
     }
 
+    fn branch(&mut self, operand: &Operand, condition: bool) {
+        if condition {
+            self.bus.tick(1);
+            if operand.crossed_page {
+                self.bus.tick(1);
+            }
+            self.program_counter = operand.data;
+        }
+    }
+
     /// Branch on overflow set
     fn bvs(&mut self, operand: &Operand) {
-        if self.status.contains(StatusFlags::OVERFLOW) {
-            self.program_counter = operand.data;
-            self.bus.tick(1);
-        }
+        self.branch(operand, self.status.contains(StatusFlags::OVERFLOW))
     }
 
     /// Branch on overflow clear
     fn bvc(&mut self, operand: &Operand) {
-        if !self.status.contains(StatusFlags::OVERFLOW) {
-            self.program_counter = operand.data;
-            self.bus.tick(1);
-        }
+        self.branch(operand, !self.status.contains(StatusFlags::OVERFLOW))
     }
 
     /// Branch on Carry Clear
     fn bcc(&mut self, operand: &Operand) {
-        if !self.status.contains(StatusFlags::CARRY) {
-            self.program_counter = operand.data;
-            self.bus.tick(1);
-        }
+        self.branch(operand, !self.status.contains(StatusFlags::CARRY))
     }
 
     /// Branch on Carry Set
     fn bcs(&mut self, operand: &Operand) {
-        if self.status.contains(StatusFlags::CARRY) {
-            self.program_counter = operand.data;
-            self.bus.tick(1);
-        }
+        self.branch(operand, self.status.contains(StatusFlags::CARRY))
     }
 
-    /// Branch on result minus
+    /// Branch on result minus.
     fn bmi(&mut self, operand: &Operand) {
-        if self.status.contains(StatusFlags::NEGATIVE) {
-            self.program_counter = operand.data;
-            self.bus.tick(1);
-        }
+        self.branch(operand, self.status.contains(StatusFlags::NEGATIVE))
     }
 
-    /// Branch on result plus
+    /// Branch on result plus.
     fn bpl(&mut self, operand: &Operand) {
-        if !self.status.contains(StatusFlags::NEGATIVE) {
-            self.program_counter = operand.data;
-            self.bus.tick(1);
-        }
+        self.branch(operand, !self.status.contains(StatusFlags::NEGATIVE))
     }
 
-    /// Branch on result not zero
+    /// Branch on result not zero.
     fn bne(&mut self, operand: &Operand) {
-        if !self.status.contains(StatusFlags::ZERO) {
-            self.program_counter = operand.data;
-            self.bus.tick(1);
-        }
+        self.branch(operand, !self.status.contains(StatusFlags::ZERO))
     }
 
-    /// Branch on Result Zero
+    /// Branch on result zero.
     fn beq(&mut self, operand: &Operand) {
-        if self.status.contains(StatusFlags::ZERO) {
-            self.program_counter = operand.data;
-            self.bus.tick(1);
-        }
+        self.branch(operand, self.status.contains(StatusFlags::ZERO))
     }
 
-    /// Jump to new location
+    /// Jump to new location.
     fn jmp(&mut self, operand: &Operand) {
         self.program_counter = operand.data;
     }
 
-    /// Test bits in memory with accumulator
+    /// Test bits in memory with accumulator.
     fn bit(&mut self, operand: &Operand) {
         let value = operand.get_data(self);
         self.status
@@ -1089,6 +1132,7 @@ impl CPU {
         self.update_zero_and_negative_flags(self.register_a);
     }
 
+    /// Load accumulator and X register with memory
     fn lax(&mut self, operand: &Operand) {
         self.lda(operand);
         self.tax(operand);
