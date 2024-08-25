@@ -142,15 +142,6 @@ impl PPU {
         }
     }
 
-    pub fn cpu_read_base(&self, addr: u16) -> u8 {
-        match addr {
-            STATUS_REGISTER => self.status.bits(),
-            OAM_DATA => todo!("read OAM_DATA"),
-            DATA_REGISTER => panic!("not supported"),
-            _ => panic!("Attempt to read from write-only PPU address {addr:#x}"),
-        }
-    }
-
     pub fn cpu_write(&mut self, addr: u16, data: u8) {
         match addr {
             CTRL_REGISTER => self.ctrl = ControlRegister::from_bits_truncate(data),
