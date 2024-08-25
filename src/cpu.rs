@@ -435,13 +435,6 @@ impl CPU {
         ]);
     }
 
-    fn peek_u16_zero_page(&mut self, addr: u8) -> u16 {
-        u16::from_le_bytes([
-            self.bus.read(addr.into()),
-            self.bus.read(addr.wrapping_add(1).into()),
-        ])
-    }
-
     fn stack_push_u8(&mut self, data: u8) {
         self.bus.write(STACK_BASE + self.stack_pointer as u16, data);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
@@ -684,9 +677,11 @@ impl CPU {
                 (addr, None, false)
             }
             AddressingMode::IndirectX => {
-                let offset = operand[0];
-                let ptr = offset.wrapping_add(self.register_x);
-                let addr = self.peek_u16_zero_page(ptr);
+                let ptr = operand[0].wrapping_add(self.register_x);
+                let addr = u16::from_le_bytes([
+                    self.bus.read(ptr.into()),
+                    self.bus.read(ptr.wrapping_add(1).into()),
+                ]);
 
                 (addr, Some(ptr.into()), false)
             }
