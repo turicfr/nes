@@ -5,8 +5,6 @@ use render::frame::Frame;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
-use std::fs::File;
-use std::io::Read;
 
 mod bus;
 mod carrying;
@@ -73,18 +71,9 @@ fn show_tiles(chr_rom: &[u8], bank: usize) -> Frame {
     frame
 }
 
-fn read_file(filename: &String) -> Vec<u8> {
-    let mut f = File::open(&filename).expect("ROM file not found");
-    let metadata = std::fs::metadata(&filename).expect("unable to read metadata");
-    let mut buffer = vec![0; metadata.len() as usize];
-    f.read(&mut buffer).expect("buffer overflow");
-
-    buffer
-}
-
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
-    let game = read_file(&args[1]);
+    let game = std::fs::read(&args[1]).unwrap();
 
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
