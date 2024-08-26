@@ -547,8 +547,7 @@ impl CPU {
                 )
             }
             AddressingMode::Absolute => {
-                if instruction.opcode.name.starts_with("J") {
-                    // && !(0x2000..0x3fff).contains(&addr)
+                if instruction.opcode.name.starts_with("J") || (0x2000..0x3fff).contains(&addr) {
                     format!("${addr:04X}")
                 } else {
                     format!("${addr:04X} = {:02X}", self.bus.read(addr))
