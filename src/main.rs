@@ -1,6 +1,7 @@
 use crate::rom::Rom;
 use bus::Bus;
 use cpu::CPU;
+use render::frame::Frame;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
@@ -11,6 +12,7 @@ mod bus;
 mod carrying;
 mod cpu;
 mod ppu;
+mod render;
 mod rom;
 
 #[allow(dead_code)]
@@ -31,10 +33,10 @@ fn color(byte: u8) -> Color {
 const WIDTH: usize = 256;
 const HEIGHT: usize = 240;
 
-fn show_tiles(chr_rom: &[u8], bank: usize) -> Vec<u8> {
+fn show_tiles(chr_rom: &[u8], bank: usize) -> Frame {
     assert!(bank <= 1);
 
-    let mut frame = vec![0; WIDTH * HEIGHT * 4];
+    let mut frame = Frame::new();
     let bank = bank * 0x1000;
     let mut offset_x = 0;
     let mut offset_y = 0;
@@ -42,7 +44,7 @@ fn show_tiles(chr_rom: &[u8], bank: usize) -> Vec<u8> {
     for i in 0..256 {
         if i % 32 == 0 {
             offset_x = 0;
-            offset_y += 8 * WIDTH * 4;
+            offset_y += 8;
         }
         let start = bank + i * 16;
         let plane_0 = &chr_rom[start..start + 8];
@@ -56,17 +58,16 @@ fn show_tiles(chr_rom: &[u8], bank: usize) -> Vec<u8> {
                 let value = bit_b << 1 | bit_a;
                 let abgr = match value {
                     0 => [0, 0, 0, 0],
-                    1 => [0xff, 55, 55, 55],
-                    2 => [0xff, 66, 66, 66],
-                    3 => [0xff, 77, 77, 77],
+                    1 => [0xff, 0x00, 0x3D, 0xA6],
+                    2 => [0xff, 0xDA, 0xAB, 0xEB],
+                    3 => [0xff, 0x0C, 0xF0, 0xA4],
                     _ => unreachable!(),
                 };
 
-                let base = (y * 4 * WIDTH + offset_y) + ((7 - x) * 4 + offset_x);
-                frame.splice(base..base + 4, abgr);
+                frame.set_pixel((7 - x) + offset_x, y + offset_y, abgr);
             }
         }
-        offset_x += 8 * 4;
+        offset_x += 8;
     }
 
     frame
@@ -127,7 +128,7 @@ fn main() -> Result<(), String> {
         }
 
         let frame = &show_tiles(&rom.chr_rom, 1);
-        texture.update(None, &frame, WIDTH * 4).unwrap();
+        texture.update(None, &frame.data, Frame::WIDTH * 4).unwrap();
         canvas.copy(&texture, None, None).unwrap();
         canvas.present();
 
